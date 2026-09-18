@@ -1,0 +1,45 @@
+# Minimal one-click backend deployment for Render (https://render.com).
+# Session 32, at explicit user request: the frontend is hosted on Vercel;
+# this FastAPI + OR-Tools backend needs a separate host since Vercel
+# doesn't run long-lived Python services. After deploying, set the
+# Vercel project's VITE_API_BASE_URL env var to this service's real URL
+# (shown in the Render dashboard once deployed).
+#
+# CORS is already permissive (allow_origins=["*"]) in src/railblock/api/app.py,
+# so no extra config is needed for the cross-origin Vercel -> Render calls.
+#
+# Session 36, at explicit user request ("we are instructed by railway
+# authorities to not push the datasets publicly into github"): the build
+# step below first runs scripts/fetch_private_data.sh, which pulls the
+# real railway-sourced files this app needs (tasks.csv, two datasets/
+# CSVs, and a handful of data/derived/ files -- see .gitignore's own
+# Session 36 section for the exact list) from a SEPARATE PRIVATE repo,
+# never from this public one. PRIVATE_DATA_REPO/DATASETS_REPO_TOKEN below
+# must both be set in the Render dashboard after creating that private
+# repo -- see DEPLOY.md for the one-time setup. Both are `sync: false`
+# (not a plain `value:`) so Render prompts for them in the dashboard and
+# never stores either in this file, which IS committed to the public
+# repo -- a plain `value:` here would also just get re-synced from this
+# file on every deploy, silently overwriting a dashboard edit.
+services:
+  - type: web
+    name: railblock-api
+    runtime: python
+    plan: free
+    buildCommand: bash scripts/fetch_private_data.sh && pip install -r requirements.txt
+    startCommand: uvicorn railblock.api.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: railblock-db
+          property: connectionString
+      - key: PYTHONPATH
+        value: src
+      - key: PRIVATE_DATA_REPO
+        sync: false
+      - key: DATASETS_REPO_TOKEN
+        sync: false
+
+databases:
+  - name: railblock-db
+    plan: free
