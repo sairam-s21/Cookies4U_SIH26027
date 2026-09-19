@@ -6,6 +6,7 @@ from datetime import date
 
 from pydantic import BaseModel, Field
 
+from railblock.config import SCHEDULE_OPTIONS_TIME_LIMIT_S
 from railblock.synthetic.maintenance_tasks import DEFECT_TYPES, DEPARTMENTS
 
 
@@ -81,7 +82,7 @@ class ScheduleOptionsRequest(BaseModel):
     # practice (see the controlled before/after comparison run earlier
     # this session, which got real, good results at 15s) -- fixed
     # internally now, not a user-facing dial.
-    time_limit_s: float = Field(30.0, gt=0)
+    time_limit_s: float = Field(default_factory=lambda: SCHEDULE_OPTIONS_TIME_LIMIT_S, gt=0)
 
 
 class MonthlyPlanRequest(BaseModel):

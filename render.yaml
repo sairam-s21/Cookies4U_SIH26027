@@ -21,6 +21,20 @@
 # never stores either in this file, which IS committed to the public
 # repo -- a plain `value:` here would also just get re-synced from this
 # file on every deploy, silently overwriting a dashboard edit.
+#
+# Session 39, after a real reported outage on the free plan: CP-SAT's
+# defaults (8 search workers x up to 3 concurrent strategies -- see
+# config.py) are tuned for a real multi-core dev machine. Confirmed live
+# that on Render's free plan (~0.1 CPU / 512MB), a single
+# /schedule/options call starves the ENTIRE instance -- every other
+# request, including trivial ones, stalled for 100s of seconds or
+# outright failed while one solve was running. These three overrides
+# only apply to THIS deployment (local dev and any better-resourced host
+# keep the code's real defaults): 2 search workers instead of 8, the 3
+# strategies run ONE AT A TIME instead of concurrently (bounding peak
+# concurrent CPU demand, not just total wall time), and a lower 12s
+# per-strategy budget so the new sequential total (~36s worst case)
+# doesn't land far past the old concurrent one.
 services:
   - type: web
     name: railblock-api
@@ -39,6 +53,12 @@ services:
         sync: false
       - key: DATASETS_REPO_TOKEN
         sync: false
+      - key: CPSAT_SEARCH_WORKERS
+        value: "2"
+      - key: SCHEDULE_OPTIONS_MAX_CONCURRENCY
+        value: "1"
+      - key: SCHEDULE_OPTIONS_TIME_LIMIT_S
+        value: "12"
 
 databases:
   - name: railblock-db

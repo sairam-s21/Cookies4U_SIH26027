@@ -36,3 +36,21 @@ RAILRADAR_API_KEY = os.environ.get("RAILRADAR_API_KEY")
 # created (see PROGRESS.md); override via DATABASE_URL in .env for any
 # other environment.
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://railblock:railblock@localhost:5432/railblock")
+
+# CP-SAT's own thread count per solve (model.py) and how many of
+# schedule_options.py's 3 strategies run concurrently. Both default to
+# values tuned for a real multi-core dev machine -- 8 search workers x up
+# to 3 concurrent solves is a reasonable ask on real hardware, but is a
+# severe mismatch for a constrained free-tier host (Render's free plan is
+# ~0.1 CPU / 512MB): confirmed live that this combination can starve the
+# whole process (every other request on the same instance stalls for
+# minutes, not just the scheduling one) rather than merely running slower.
+# Override both via env vars on a constrained host without touching code;
+# local dev and any better-resourced deploy keep the full defaults.
+CPSAT_SEARCH_WORKERS = int(os.environ.get("CPSAT_SEARCH_WORKERS", "8"))
+SCHEDULE_OPTIONS_MAX_CONCURRENCY = int(os.environ.get("SCHEDULE_OPTIONS_MAX_CONCURRENCY", "3"))
+# schemas.py's ScheduleOptionsRequest.time_limit_s field default -- lower
+# this on a constrained host alongside SCHEDULE_OPTIONS_MAX_CONCURRENCY=1
+# (sequential strategies) so worst-case total wall time (n_strategies x
+# this value) stays bounded, instead of multiplying the existing 30s.
+SCHEDULE_OPTIONS_TIME_LIMIT_S = float(os.environ.get("SCHEDULE_OPTIONS_TIME_LIMIT_S", "30.0"))

@@ -94,6 +94,7 @@ from datetime import date as Date, timedelta
 import pandas as pd
 from ortools.sat.python import cp_model
 
+from railblock.config import CPSAT_SEARCH_WORKERS
 from railblock.scheduling.capacity import compute_daily_window_capacity
 from railblock.scheduling.disconnection_procedure import REQUIRED_SIGNOFF_ROLES_JOINT_SCHEDULE
 from railblock.synthetic.maintenance_tasks import (
@@ -299,7 +300,7 @@ def solve_schedule(
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_s
-    solver.parameters.num_search_workers = 8
+    solver.parameters.num_search_workers = CPSAT_SEARCH_WORKERS
     # Session 22, at explicit user request, after a real bug traced to
     # this: with 8 parallel search workers and no fixed seed, CP-SAT's
     # internal worker-race timing is genuinely nondeterministic, so

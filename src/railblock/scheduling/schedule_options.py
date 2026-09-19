@@ -19,6 +19,7 @@ from datetime import date as Date
 
 import pandas as pd
 
+from railblock.config import SCHEDULE_OPTIONS_MAX_CONCURRENCY
 from railblock.scheduling.capacity import compute_daily_window_capacity
 from railblock.scheduling.model import COORDINATION_BONUS, WINDOW_OPEN_COST
 from railblock.scheduling.orchestrator import FullScheduleResult, solve_schedule_with_options
@@ -128,7 +129,7 @@ def generate_schedule_options(
             result=result, recommended=(strat["key"] == "balanced"),
         )
 
-    with ThreadPoolExecutor(max_workers=len(strategies)) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, min(len(strategies), SCHEDULE_OPTIONS_MAX_CONCURRENCY))) as pool:
         results = list(pool.map(run, strategies))
 
     balanced = next(o for o in results if o.key == "balanced")
