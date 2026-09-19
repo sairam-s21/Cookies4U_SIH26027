@@ -1,0 +1,24 @@
+[Unit]
+Description=RailBlock Co-Pilot API (FastAPI/uvicorn) -- GCP e2-micro
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=railblock
+WorkingDirectory=/opt/railblock/app
+Environment=PYTHONPATH=/opt/railblock/app/src
+EnvironmentFile=/opt/railblock/app.env
+ExecStart=/opt/railblock/venv/bin/uvicorn railblock.api.app:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=3
+
+# Single worker process, unlike the Oracle unit's 2 -- e2-micro's ONE
+# shared vCPU wouldn't gain real parallelism from a second process, and
+# each additional worker duplicates this app's full pandas/numpy/OR-Tools
+# memory footprint, which matters a lot more on 1GB total RAM than it did
+# on Oracle's 24GB. See deploy/setup_gcp_vm.sh for the matching CP-SAT
+# tuning and the swap file that backstops this tight a memory budget.
+
+[Install]
+WantedBy=multi-user.target
