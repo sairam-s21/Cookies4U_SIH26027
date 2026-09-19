@@ -1,4 +1,7 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { ensureDemoBatch } from "../api/ensureDemoBatch.js";
+import { Spinner } from "./StatusBanner.jsx";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", end: true, icon: "▦", sub: "Live overview — MAS ⟶ JTJ corridor" },
@@ -16,6 +19,14 @@ export default function Layout() {
   const current =
     NAV_ITEMS.find((item) => (item.end ? location.pathname === item.to : location.pathname.startsWith(item.to))) ||
     NAV_ITEMS[0];
+
+  // Session 39: every routed page waits here, once, before it ever
+  // mounts -- see ensureDemoBatch.js for why this lives above the
+  // Outlet rather than duplicated inside each page's own data-fetching.
+  const [batchReady, setBatchReady] = useState(false);
+  useEffect(() => {
+    ensureDemoBatch().finally(() => setBatchReady(true));
+  }, []);
 
   return (
     <div className="app-shell">
@@ -60,7 +71,7 @@ export default function Layout() {
         </div>
 
         <div className="content">
-          <Outlet />
+          {batchReady ? <Outlet /> : <Spinner />}
         </div>
       </div>
     </div>

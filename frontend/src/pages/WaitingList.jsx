@@ -18,14 +18,13 @@ const STATUS_LABEL = {
 //
 // Session 39, at explicit user request, replacing Session 32's manual
 // "Create demo batch of tasks" / "Reset" buttons: the 70 real tasks now
-// load automatically the first time a given browser/device ever visits
-// (X-Session-Id is a UUID persisted in localStorage -- see api/session.js
-// -- so this is once per NEW visitor, never on every refresh/reopen of
-// the same browser). `totalCount` (the UNFILTERED request count) never
-// decreases once tasks are loaded -- it stays at 70 even after every
-// task's status moves to approved/rejected -- so "totalCount === 0" is a
-// reliable, one-time "this session has never had tasks loaded" signal,
-// safe to check on every mount without risk of re-triggering later.
+// load automatically the first time a given browser tab ever visits
+// (X-Session-Id is a UUID in sessionStorage -- see api/session.js -- so
+// this is once per tab/browser session, reset on close+reopen, never on
+// a plain refresh). The actual auto-load now happens once, centrally,
+// in Layout.jsx (see api/ensureDemoBatch.js) BEFORE any routed page
+// mounts -- Dashboard included -- so this page's own load() below can
+// stay a plain read with no activation logic of its own.
 export default function WaitingList() {
   const [requests, setRequests] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -43,23 +42,12 @@ export default function WaitingList() {
         const byId = {};
         ranked.forEach((r, i) => (byId[r.task_id] = { risk_percentage: r.risk_percentage, rank: i }));
         setWhittleById(byId);
-        return all.length;
       })
-      .catch((e) => {
-        setError(e.message);
-        return null;
-      });
+      .catch((e) => setError(e.message));
   }
 
   useEffect(() => {
-    load()
-      .then(async (count) => {
-        if (count === 0) {
-          await api.activateDemoBatch().catch((e) => setError(e.message));
-          await load();
-        }
-      })
-      .finally(() => setLoading(false));
+    load().finally(() => setLoading(false));
   }, []);
 
   // Session 21, at explicit user request: two real orders --
