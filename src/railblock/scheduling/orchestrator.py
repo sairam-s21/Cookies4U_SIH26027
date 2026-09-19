@@ -76,6 +76,31 @@ class FullScheduleResult:
     option_counts: dict = field(default_factory=dict)
 
 
+def prepare_forced_and_remaining(
+    ranked_tasks: pd.DataFrame,
+    capacity: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """The pandas-heavy pre-processing between capacity and the actual
+    CP-SAT solve: identify combining candidates, expand splittable tasks
+    against real window sizes, then deterministically force-place any
+    combination that's genuinely feasible right now (see the inline
+    comments this was extracted from, below, for the full Session 26
+    reasoning). Depends only on `ranked_tasks` and `capacity` -- NOT on
+    any strategy-specific objective weight or `allowed_weekdays` (those
+    only affect the CP-SAT solve itself) -- so schedule_options.py's 3
+    strategies, which share the same ranked_tasks/capacity, can call this
+    ONCE and reuse the result instead of each redundantly repeating this
+    same pure-Python/pandas work. Confirmed live this redundancy was real:
+    on a CPU-constrained host, 3x this step was a large share of why
+    /schedule/options stayed slow even after CP-SAT's own per-strategy
+    concurrency was already turned down (see config.py's
+    SCHEDULE_OPTIONS_MAX_CONCURRENCY)."""
+    combinable_pairs = find_combinable_pairs(ranked_tasks)
+    combinable_partner_minutes = partner_minutes_by_task(ranked_tasks, combinable_pairs)
+    expanded_tasks = expand_splittable_tasks(ranked_tasks, capacity, combinable_partner_minutes)
+    return force_combinable_placements(expanded_tasks, capacity, combinable_pairs)
+
+
 def solve_schedule_with_options(
     ranked_tasks: pd.DataFrame,
     sections: pd.DataFrame,
@@ -90,6 +115,7 @@ def solve_schedule_with_options(
     on_time_bonus: float | None = None,
     allowed_weekdays: set[int] | None = None,
     capacity: pd.DataFrame | None = None,
+    forced_and_remaining: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | None = None,
 ) -> FullScheduleResult:
     """`capacity`: pass a precomputed compute_daily_window_capacity() result
     to skip recomputing it -- e.g. schedule_options.py's multiple
@@ -99,7 +125,11 @@ def solve_schedule_with_options(
     work that would otherwise dominate wall-clock time when the strategies
     are run concurrently (CP-SAT's own C++ solve releases the GIL; this
     pandas-heavy step does not, so it's the part that must be shared
-    rather than parallelized)."""
+    rather than parallelized).
+
+    `forced_and_remaining`: same idea, one step further down the pipeline
+    -- pass a precomputed prepare_forced_and_remaining(ranked_tasks,
+    capacity) result to skip recomputing splitting/combining too."""
     if capacity is None:
         capacity = compute_daily_window_capacity(sections, passenger_occupancy, goods_occupancy, start_date, n_days)
     # Session 26, at explicit user request: before splitting decides part
@@ -107,10 +137,7 @@ def solve_schedule_with_options(
     # section, overlapping [raised_date, due_date] windows, different
     # departments (see combining.py) -- so a split part can be aimed at a
     # SPECIFIC real partner's duration, not just any real window.
-    combinable_pairs = find_combinable_pairs(ranked_tasks)
-    combinable_partner_minutes = partner_minutes_by_task(ranked_tasks, combinable_pairs)
-    expanded_tasks = expand_splittable_tasks(ranked_tasks, capacity, combinable_partner_minutes)
-
+    #
     # Session 26, at explicit user request, after CP-SAT's own
     # COORDINATION_BONUS incentive repeatedly failed to actually realize a
     # real, verified combining opportunity in production (a real but
@@ -121,9 +148,9 @@ def solve_schedule_with_options(
     # both within their own due dates -- before CP-SAT ever runs. What's
     # placed here is removed from CP-SAT's pool entirely (capacity
     # subtracted too), so it can never be silently missed OR undone.
-    forced_schedule, remaining_expanded, capacity_after_force = force_combinable_placements(
-        expanded_tasks, capacity, combinable_pairs
-    )
+    if forced_and_remaining is None:
+        forced_and_remaining = prepare_forced_and_remaining(ranked_tasks, capacity)
+    forced_schedule, remaining_expanded, capacity_after_force = forced_and_remaining
 
     weight_kwargs = {}
     if coordination_bonus is not None:

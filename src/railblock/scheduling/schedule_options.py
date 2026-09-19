@@ -22,7 +22,11 @@ import pandas as pd
 from railblock.config import SCHEDULE_OPTIONS_MAX_CONCURRENCY
 from railblock.scheduling.capacity import compute_daily_window_capacity
 from railblock.scheduling.model import COORDINATION_BONUS, WINDOW_OPEN_COST
-from railblock.scheduling.orchestrator import FullScheduleResult, solve_schedule_with_options
+from railblock.scheduling.orchestrator import (
+    FullScheduleResult,
+    prepare_forced_and_remaining,
+    solve_schedule_with_options,
+)
 
 WEEKDAYS = {0, 1, 2, 3, 4}
 WEEKEND = {5, 6}
@@ -118,11 +122,18 @@ def generate_schedule_options(
     strategies = _strategy_defs()[:3]
     if capacity is None:
         capacity = compute_daily_window_capacity(sections, passenger_occupancy, goods_occupancy, start_date, n_days)
+    # Same sharing as `capacity` above, one step further down the
+    # pipeline: splitting/combining pre-processing depends only on
+    # ranked_tasks + capacity (never on a strategy's own objective
+    # weights or allowed_weekdays), so it's identical across all 3
+    # strategies too -- computed once here instead of 3x redundantly.
+    forced_and_remaining = prepare_forced_and_remaining(ranked_tasks, capacity)
 
     def run(strat: dict) -> ScheduleOption:
         result = solve_schedule_with_options(
             ranked_tasks, sections, passenger_occupancy, goods_occupancy, start_date,
-            n_days=n_days, time_limit_s=time_limit_s, capacity=capacity, **strat["kwargs"],
+            n_days=n_days, time_limit_s=time_limit_s, capacity=capacity,
+            forced_and_remaining=forced_and_remaining, **strat["kwargs"],
         )
         return ScheduleOption(
             key=strat["key"], label=strat["label"], description=strat["description"],
