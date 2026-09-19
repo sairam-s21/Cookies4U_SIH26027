@@ -1,0 +1,25 @@
+[Unit]
+Description=RailBlock Co-Pilot API (FastAPI/uvicorn)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/railblock/app
+Environment=PYTHONPATH=/opt/railblock/app/src
+EnvironmentFile=/opt/railblock/app.env
+ExecStart=/opt/railblock/venv/bin/uvicorn railblock.api.app:app --host 127.0.0.1 --port 8000 --workers 2
+Restart=on-failure
+RestartSec=3
+
+# Oracle's Always Free ARM shape gives real, dedicated cores (unlike
+# Render's free tier) -- 2 uvicorn WORKER PROCESSES (not just CP-SAT's
+# own internal threading) means a heavy /schedule/options request being
+# handled by one worker can no longer block a simple GET /requests from
+# being served by the other, at the OS process level. See config.py's
+# CPSAT_SEARCH_WORKERS/SCHEDULE_OPTIONS_MAX_CONCURRENCY for the matching
+# per-solve tuning -- set in /opt/railblock/app.env, not here.
+
+[Install]
+WantedBy=multi-user.target
