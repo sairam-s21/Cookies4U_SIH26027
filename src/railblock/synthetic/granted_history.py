@@ -88,10 +88,28 @@ from railblock.corridor.real_overrides import apply_real_train_overrides
 from railblock.corridor.sections import build_block_sections
 from railblock.paths import GRANTED_HISTORY_XLSX
 from railblock.synthetic.goods_forecast import generate_goods_forecast
-from railblock.synthetic.maintenance_tasks import generate_maintenance_tasks
+from railblock.synthetic.maintenance_tasks import (
+    DEFECT_TYPES,
+    DEPARTMENTS,
+    SOURCE_SYSTEM,
+    approval_path_for,
+    generate_maintenance_tasks,
+)
 
 N_PAST = 50         # always "completed" -- Completed History variety
 TASKS_PER_DAY = 3   # real, independently-timed tasks per future day -- "each day just has active tasks"
+
+# Session 40, at explicit user request ("remove the GH prefix... no need
+# to specify it"): task_id lost its distinguishing "GH-" prefix, so this
+# module's own {source_system}-{n} numbering became indistinguishable
+# from -- and confirmed live to genuinely COLLIDE with -- POST /demo/seed's
+# raw generate_maintenance_tasks() numbering (also unprefixed, also
+# starting at 1; a real test caught two different sessions' schedules
+# sharing a task_id this way). Offsetting this module's own numbering
+# well clear of /demo/seed's largest real scenario (DEMAND_SCENARIOS'
+# "stress_test", 72 tasks) keeps the two id spaces disjoint without
+# bringing back a visible prefix.
+ID_OFFSET = 10000
 
 PAST_RANGE_DAYS_BEFORE = 31  # "one month before" the generation anchor
 FUTURE_RANGE_END_MONTH_DAY = (11, 30)  # "through November" -- SIH evaluation window
@@ -274,7 +292,7 @@ def _row(task: pd.Series, i: int, grant_date: date, start_minute: int, end_minut
     # calculation below has always used task["due_date"] internally, so
     # these were never actually missing, just never passed through.
     return {
-        "task_id": f"GH-{task['source_system']}-{i + 1:05d}",
+        "task_id": f"{task['source_system']}-{i + ID_OFFSET + 1:05d}",
         "department": task["department"],
         "section_id": task["section_id"],
         "defect_type": task["defect_type"],
@@ -291,6 +309,62 @@ def _row(task: pd.Series, i: int, grant_date: date, start_minute: int, end_minut
         "negotiated_exception": False,
         "approval_path": task["approval_path"],
         "on_time": grant_date.isoformat() <= task["due_date"],
+        "data_source": "GRANTED_HISTORY_SYNTHETIC",
+    }
+
+
+def demo_active_row(sections: pd.DataFrame, now: datetime, seed: int = 20260917) -> dict:
+    """Session 40, at explicit user request, ahead of a demo video: one
+    additional real-looking row, computed FRESH on every call (never
+    baked into the static xlsx `load_granted_history()` reads -- that's
+    @lru_cache'd, so a row placed there would freeze its timing at
+    whatever moment first loaded it in this process, not whenever the
+    video actually gets recorded) so it's ALWAYS classified "active"
+    (start before `now`, end at least 60 real minutes after it) no
+    matter when the Dashboard/Weekly-Monthly Schedule/Corridor Map are
+    actually loaded -- giving every one of them something genuinely live
+    to show, since all three already read from the same shared
+    granted-history data. Named with the same `GH-{source_system}-#####`
+    convention every other row here uses (a number well past this file's
+    own real range, so it can never collide with one), so it's not
+    visually distinguishable as synthetic in a demo.
+
+    One real simplification from the rest of this module: skips
+    _place_in_free_time's real-train-occupancy-aware placement, since
+    that needs passenger/goods occupancy rebuilt fresh -- a real
+    per-request cost this function is deliberately called on every
+    request, for one purely cosmetic row, not the actual scored
+    dataset."""
+    rng = np.random.default_rng(seed + now.toordinal())  # a fresh pick each real calendar day, stable within it
+    department = str(rng.choice(DEPARTMENTS))
+    section_id = str(rng.choice(sections["section_id"].tolist()))
+    defect_type = str(rng.choice(DEFECT_TYPES[department]))
+
+    today = now.date()
+    day_start = datetime.combine(today, datetime.min.time())
+    now_minute = int((now - day_start).total_seconds() // 60)
+    start_minute = max(0, now_minute - 30)
+    end_minute = min(1439, now_minute + 90)
+    duration_hours = round((end_minute - start_minute) / 60, 2)
+
+    return {
+        "task_id": f"{SOURCE_SYSTEM[department]}-90001",
+        "department": department,
+        "section_id": section_id,
+        "defect_type": defect_type,
+        "requester_priority": "Critical",
+        "estimated_block_hours": duration_hours,
+        "raised_date": (today - timedelta(days=3)).isoformat(),
+        "due_date": (today + timedelta(days=10)).isoformat(),
+        "days_overdue": 0,
+        "splittable": True,
+        "date": today.isoformat(),
+        "start_minute": start_minute,
+        "end_minute": end_minute,
+        "option": "whole",
+        "negotiated_exception": False,
+        "approval_path": approval_path_for(duration_hours),
+        "on_time": True,
         "data_source": "GRANTED_HISTORY_SYNTHETIC",
     }
 

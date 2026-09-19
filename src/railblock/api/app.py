@@ -66,7 +66,7 @@ from railblock.scheduling.emergency import create_demo_emergency, find_affected_
 from railblock.scheduling.orchestrator import FullScheduleResult, solve_schedule_with_options
 from railblock.scheduling.schedule_options import ScheduleOption, generate_schedule_options, summarize_option
 from railblock.synthetic.goods_forecast import generate_goods_forecast
-from railblock.synthetic.granted_history import IST, classify_blocks_by_time, load_granted_history, now_ist
+from railblock.synthetic.granted_history import IST, classify_blocks_by_time, demo_active_row, load_granted_history, now_ist
 from railblock.synthetic.maintenance_tasks import (
     DEFECT_TYPES,
     DEMAND_SCENARIOS,
@@ -1204,8 +1204,17 @@ def _granted_history_df(session_id: str) -> pd.DataFrame:
     disappears entirely if removed with no slot found/declined -- never
     still shown "active" at a slot it's no longer actually in. (Scoped to
     granted-history rows only, not live store.approved ones -- the bulk
-    of pre-existing schedule data an emergency demo interacts with.)"""
-    return _apply_reassignment_overrides_df(load_granted_history(), session_id)
+    of pre-existing schedule data an emergency demo interacts with.)
+
+    Session 40: one extra row from demo_active_row(), computed fresh
+    against the real current moment on every call (never baked into the
+    cached, static load_granted_history() result -- see that function's
+    own docstring for why it would go stale), appended BEFORE the
+    reassignment override step above so it's just as eligible to be
+    displaced by an emergency as any other row here."""
+    ctx = get_corridor_context()
+    base = pd.concat([load_granted_history(), pd.DataFrame([demo_active_row(ctx.sections, now_ist())])], ignore_index=True)
+    return _apply_reassignment_overrides_df(base, session_id)
 
 
 def _apply_reassignment_overrides_df(df: pd.DataFrame, session_id: str) -> pd.DataFrame:
