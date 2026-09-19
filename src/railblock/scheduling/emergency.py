@@ -36,8 +36,8 @@ from railblock.scheduling.combining import (
 from railblock.scheduling.orchestrator import solve_schedule_with_options
 from railblock.synthetic.goods_forecast import generate_goods_forecast
 
-EMERGENCY_MIN_HOURS = 4.0
-EMERGENCY_MAX_HOURS = 10.0
+EMERGENCY_MIN_HOURS = 1.5
+EMERGENCY_MAX_HOURS = 4.0
 
 # Defect types where, left unfixed, could pose immediate danger to a
 # running train -- spans all 3 departments, reusing the exact same real
@@ -88,38 +88,48 @@ def create_demo_emergency(sections: pd.DataFrame, existing_rows: list[dict], now
     are affected" -- picking a purely random window starting exactly at
     `now` left this to chance (this corridor's real schedule is sparse
     enough that "something happens to be running in this exact instant"
-    often just isn't true). Instead: among `existing_rows` (the same
-    expanded per-session shape GET /schedule/weekly builds -- see
-    api/app.py's _expanded_schedule_rows) that haven't finished yet
-    relative to `now` AND are still on `now`'s own real calendar date,
-    pick the SOONEST real one and anchor the emergency's window to start
-    at that exact real moment -- guarantees a genuine overlap with at
-    least that one task (often several more, since anything else
-    sharing similar timing on any section is caught by
-    find_affected_rows' own cross-section overlap check), and keeps the
-    emergency's section tied to a real, currently-affected location
-    rather than an arbitrary one.
+    often just isn't true).
 
-    Session 30 fix, after a second real reported bug: the first version
-    of this search had no same-day restriction, so on a day with nothing
-    left scheduled it happily anchored to the SOONEST upcoming task even
-    if that was tomorrow (or later) -- "an emergency reported now"
-    showing up as tomorrow's incident, and (worse) implicitly inviting
-    an affected task to be "rescheduled" to a moment BEFORE the
-    emergency it was supposedly displaced by. An emergency is real,
-    happening right now -- it must never be dated into the future.
-    Restricted to `now`'s own date only; if genuinely nothing is left
-    scheduled anywhere today, falls back to starting at `now` itself
-    with no guaranteed overlap (rare in practice -- see PROGRESS.md)."""
+    Session 39, at explicit user request ("always ... at least affects
+    one of the already scheduled tasks"), after confirming live that
+    Session 30's original "today's calendar date only" search left a
+    real gap once EMERGENCY_MAX_HOURS was tightened way down from 10h to
+    4h (a much shorter emergency duration means "today, whatever's left"
+    is a much smaller net -- e.g. late in the day, once every block
+    scheduled for the rest of today has already finished, this found
+    nothing at all, even in a session with a real, densely-scheduled
+    70-task batch, confirmed live against this corridor's own real
+    schedule): the search horizon is now [now, now + EMERGENCY_MAX_HOURS)
+    -- the widest an emergency's real reach could ever be, not an
+    arbitrary calendar-day cutoff -- correctly spanning a midnight
+    boundary when `now` is late enough that it needs to. Still anchors
+    the emergency's own start to the chosen candidate's own real start
+    (clamped to never be earlier than `now`, same as before) rather than
+    always starting exactly at `now`: overlap is then guaranteed by
+    construction regardless of which specific duration gets drawn below
+    (the segment necessarily starts exactly when the candidate's own
+    window does, and any two windows sharing a start point with nonzero
+    length overlap) -- using `now` itself as the anchor point would only
+    guarantee overlap for a duration long enough to reach that specific
+    candidate, which isn't otherwise true for every draw in [1.5, 4]
+    hours. Never reintroduces Session 30's original bug (anchoring to a
+    task potentially DAYS away) since the search horizon is bounded by
+    this emergency's own real maximum duration, not "whatever's still
+    technically upcoming." Still falls back to a random section with no
+    guaranteed overlap only if truly nothing on the whole corridor is
+    scheduled anywhere within that reachable window -- now a much
+    tighter, much rarer gap than before."""
     duration_hours = float(rng.uniform(EMERGENCY_MIN_HOURS, EMERGENCY_MAX_HOURS))
 
-    today_iso = now.date().isoformat()
-    upcoming = [
+    reachable_until = now + timedelta(hours=EMERGENCY_MAX_HOURS)
+    candidates = [
         r for r in existing_rows
-        if r.get("start_minute") is not None and r["date"] == today_iso and _row_end_datetime(r) > now
+        if r.get("start_minute") is not None
+        and _row_start_datetime(r) < reachable_until
+        and _row_end_datetime(r) > now
     ]
-    if upcoming:
-        target = min(upcoming, key=_row_start_datetime)
+    if candidates:
+        target = min(candidates, key=_row_start_datetime)
         start_dt = max(_row_start_datetime(target), now)
         section_id = target["section_id"]
     else:

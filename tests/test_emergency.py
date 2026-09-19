@@ -132,9 +132,11 @@ def test_create_demo_emergency_always_overlaps_a_real_upcoming_task(toy_sections
     # blind "starts exactly now" draw left to chance. Verified here the
     # way it actually matters: find_affected_rows must genuinely catch
     # it, for every seed (the RNG only controls duration/department/
-    # defect_type now, never whether a real conflict exists).
+    # defect_type now, never whether a real conflict exists). Timed
+    # within EMERGENCY_MAX_HOURS (4h) of `now` -- Session 39 tightened
+    # the search horizon to this emergency's own real reachable range.
     now = datetime(2026, 9, 17, 6, 0)
-    existing = [_row("SOON-TASK", "AJJ-WJR", "2026-09-17", 900, 950)]
+    existing = [_row("SOON-TASK", "AJJ-WJR", "2026-09-17", 500, 550)]
     for seed in range(8):
         rng = np.random.default_rng(seed)
         emergency = create_demo_emergency(toy_sections, existing, now, rng, f"EMRG-{seed:05d}")
@@ -157,15 +159,18 @@ def test_create_demo_emergency_never_anchors_before_now(toy_sections):
 
 
 def test_create_demo_emergency_picks_the_soonest_of_several_upcoming_tasks(toy_sections):
+    # Both candidates within EMERGENCY_MAX_HOURS (4h) of `now` (minute
+    # 360) -- Session 39 tightened the search horizon to this
+    # emergency's own real reachable range, see the function's docstring.
     now = datetime(2026, 9, 17, 6, 0)
     existing = [
-        _row("LATER-TASK", "BQI-SA", "2026-09-17", 1200, 1300),
-        _row("SOONEST-TASK", "MAS-AJJ", "2026-09-17", 800, 850),
+        _row("LATER-TASK", "BQI-SA", "2026-09-17", 550, 590),
+        _row("SOONEST-TASK", "MAS-AJJ", "2026-09-17", 450, 500),
     ]
     rng = np.random.default_rng(2)
     emergency = create_demo_emergency(toy_sections, existing, now, rng, "EMRG-00001")
     assert emergency["section_id"] == "MAS-AJJ"
-    assert emergency["segments"][0]["start_minute"] == 800
+    assert emergency["segments"][0]["start_minute"] == 450
 
 
 def test_create_demo_emergency_never_anchors_to_a_future_day(toy_sections):
@@ -181,6 +186,24 @@ def test_create_demo_emergency_never_anchors_to_a_future_day(toy_sections):
     emergency = create_demo_emergency(toy_sections, existing, now, rng, "EMRG-00001")
     assert emergency["segments"][0]["date"] == "2026-09-17"
     assert emergency["segments"][0]["start_minute"] == 1200  # falls back to `now` itself
+
+
+def test_create_demo_emergency_reaches_past_midnight_when_todays_schedule_is_empty(toy_sections):
+    # Session 39: the real gap this closes -- confirmed live against this
+    # corridor's own schedule that once EMERGENCY_MAX_HOURS dropped to 4h,
+    # late in the day (nothing left scheduled for the REST of today) used
+    # to fall through to the no-guarantee random-section path even
+    # though something was genuinely about to start just after midnight,
+    # well within this emergency's own real reach. The search horizon is
+    # now real elapsed time, not calendar-day boundaries, so it correctly
+    # spans midnight here.
+    now = datetime(2026, 9, 17, 23, 0)  # nothing left today; EMERGENCY_MAX_HOURS reaches to 03:00 tomorrow
+    existing = [_row("JUST-AFTER-MIDNIGHT", "AJJ-WJR", "2026-09-18", 90, 140)]  # 01:30-02:20 tomorrow
+    rng = np.random.default_rng(9)
+    emergency = create_demo_emergency(toy_sections, existing, now, rng, "EMRG-00001")
+    assert emergency["section_id"] == "AJJ-WJR"
+    affected_ids = {r["task_id"] for r in find_affected_rows(emergency, existing, now)}
+    assert affected_ids == {"JUST-AFTER-MIDNIGHT"}
 
 
 def test_create_demo_emergency_is_fresh_every_call(toy_sections):
