@@ -144,6 +144,36 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/debug/private-data")
+def debug_private_data():
+    """TEMPORARY -- deployment diagnostic only, not part of the app's real
+    surface. Reports whether the private-repo fetch actually landed the
+    files this deploy needs, and how many demo task templates made it
+    into the DB. Remove once the "Create demo batch" bug is found."""
+    import os
+
+    from railblock.paths import TASKS_CSV_WATCH_PATH, TASKS_CSV_IMPORT_STATE_JSON, GRANTED_HISTORY_XLSX
+
+    def _file_info(p):
+        if not p.exists():
+            return {"exists": False}
+        info = {"exists": True, "size_bytes": p.stat().st_size}
+        if p.suffix == ".csv":
+            with open(p) as f:
+                info["line_count"] = sum(1 for _ in f)
+        return info
+
+    return {
+        "cwd": os.getcwd(),
+        "cwd_listing": sorted(os.listdir(".")),
+        "tasks_csv": _file_info(TASKS_CSV_WATCH_PATH),
+        "import_state_json": _file_info(TASKS_CSV_IMPORT_STATE_JSON),
+        "granted_history_xlsx": _file_info(GRANTED_HISTORY_XLSX),
+        "datasets_dir_listing": sorted(os.listdir("datasets")) if os.path.isdir("datasets") else None,
+        "template_task_count": len(get_store().template_tasks()),
+    }
+
+
 @app.get("/now")
 def now():
     """Session 29, at explicit user request, after a real reported bug:
