@@ -9,6 +9,13 @@ __pycache__/
 *:Zone.Identifier
 .claude/
 
+# Mutable local counter the tasks.csv watcher writes as it runs (how many
+# rows have been imported so far). Must NEVER be tracked -- committing it
+# ships this dev machine's own already-imported count to every fresh
+# deploy, permanently convincing a brand-new, empty database that
+# nothing needs importing. Must start absent on every new deployment.
+/data/derived/tasks_csv_import_state.json
+
 *.docx
 *.pptx
 *.pdf
