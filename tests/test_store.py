@@ -65,6 +65,20 @@ def test_pending_and_all_requests_df():
     assert pending.iloc[0]["task_id"] == "SMMS-REQ-00001"
 
 
+def test_all_requests_df_orders_by_raised_date_not_insertion_order():
+    store = _test_store()
+    # Inserted in an order deliberately unrelated to raised_date -- this
+    # is what a bulk-activated demo batch actually looks like (all rows
+    # inserted together in template order, which has no relationship to
+    # each task's own real raised_date).
+    store.add_request(dict(SAMPLE_REQUEST, task_id="A", raised_date="2026-09-01"), SESSION)
+    store.add_request(dict(SAMPLE_REQUEST, task_id="B", raised_date="2026-09-07"), SESSION)
+    store.add_request(dict(SAMPLE_REQUEST, task_id="C", raised_date="2026-09-04"), SESSION)
+
+    df = store.all_requests_df(SESSION)
+    assert list(df["task_id"]) == ["B", "C", "A"]
+
+
 def test_non_approved_requests_df_includes_every_unapproved_status():
     store = _test_store()
     for i, status in enumerate(["pending", "recommended_full", "recommended_partial", "recommended_unscheduled", "approved"]):

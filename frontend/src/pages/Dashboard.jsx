@@ -49,12 +49,14 @@ export default function Dashboard() {
         if (cancelled) return;
         setHistory(historyRes);
         // Same definition as WaitingList.jsx uses -- everything not yet
-        // approved, not just literally status="pending". A task that's
-        // already been through one recommendation run (recommended_full/
-        // partial/unscheduled) still belongs in this count; otherwise this
-        // card and the Waiting List page disagree the moment ANY
-        // recommend run has happened, which is confusing, not honest.
-        setPending(pendingRes.filter((r) => r.status !== "approved"));
+        // approved OR rejected, not just literally status="pending". A
+        // task that's already been through one recommendation run
+        // (recommended_full/partial/unscheduled) still belongs in this
+        // count; otherwise this card and the Waiting List page disagree
+        // the moment ANY recommend run has happened, which is confusing,
+        // not honest. A rejected task is a final decision, same as
+        // approved -- it must not keep inflating this count either.
+        setPending(pendingRes.filter((r) => r.status !== "approved" && r.status !== "rejected"));
         setActive(activeRes.blocks);
         setUpcoming(upcomingRes.blocks);
       } catch (e) {

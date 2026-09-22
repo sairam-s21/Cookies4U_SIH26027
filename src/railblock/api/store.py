@@ -282,13 +282,22 @@ class BlockRequestStore:
         return pd.DataFrame(rows)
 
     def all_requests_df(self, session_id: str) -> pd.DataFrame:
-        # Most-recently-inserted first -- see inserted_at's schema comment above.
+        # Newly-raised-first by each request's own real raised_date, not
+        # DB insertion order -- a bulk-activated demo batch inserts all 70
+        # rows in template order within the same instant, which has no
+        # relationship to which task was actually raised most recently in
+        # the real data. inserted_at DESC (most-recently-inserted first)
+        # is kept as the query order so ties on raised_date fall back to
+        # it via the stable sort below.
         with self._conn.cursor() as cur:
             cur.execute(
                 "SELECT data_json FROM requests WHERE session_id = %s ORDER BY inserted_at DESC", (session_id,)
             )
             rows = [json.loads(r["data_json"]) for r in cur.fetchall()]
-        return pd.DataFrame(rows)
+        df = pd.DataFrame(rows)
+        if not df.empty and "raised_date" in df.columns:
+            df = df.sort_values("raised_date", ascending=False, kind="stable").reset_index(drop=True)
+        return df
 
     # ------------------------------------------------------- recommendation
 
