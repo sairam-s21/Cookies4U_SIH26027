@@ -129,13 +129,15 @@ Adapted from Gerum, Altay & Baykal-Gürsoy (2019) — their research ranks machi
 The core idea: an unscheduled task keeps "costing" more the longer it waits, and that cost grows faster if its track section is in high demand from other tasks too.
 
 ```
-base_score       = (days overdue + 1) × priority weight × impact weight
-congestion       = pending demand hours on this section ÷ average free hours per day on this section
-combined_score   = base_score × (1 + congestion)
+base_score      = (days overdue + 1) × priority weight × impact weight
+congestion      = pending demand hours on this section ÷ average free hours per day on this section
+combined_score  = base_score × (1 + congestion)
 
-whittle_index    = a formula that keeps every Critical task ranked above every
-                   Moderate task, and every Moderate task above every Routine
-                   task — combined_score only decides the order WITHIN a tier
+whittle_index   = tier_rank(priority) × TIER_WIDTH
+                + [combined_score ÷ (1 + combined_score)] × (TIER_WIDTH − 1)
+
+tier_rank(Critical) = 2, tier_rank(Moderate) = 1, tier_rank(Routine) = 0
+TIER_WIDTH = 1000
 ```
 
 - **priority weight** comes directly from the requester's own Critical / Moderate / Routine label — the system never predicts this itself.
