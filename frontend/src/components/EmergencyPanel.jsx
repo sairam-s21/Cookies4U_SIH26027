@@ -34,6 +34,15 @@ const STATUS_TAG = { proposed: "crit", resolved: "rou", discarded: "pending" };
 // renders everywhere else, so approving an emergency reschedule is a
 // genuine "I looked at where this lands" decision, not a blind click
 // over a plain table.
+//
+// Same window-grouping Schedule.jsx's own days-builder uses, and for the
+// same reason: a session's own `proposed.combined` flag only reflects
+// whichever OTHER task it organically combined with, which may not even
+// be part of THIS emergency's affected list -- two affected tasks that
+// both land in this preview's same (section, date, window_index) need
+// their own local grouping to render as one shared block and open
+// together on click, rather than trusting each one's flag in isolation
+// (which can disagree even when they're genuinely sharing the window).
 function buildSectionDays(emergency) {
   const bySection = {};
   const push = (sectionId, block) => {
@@ -46,27 +55,57 @@ function buildSectionDays(emergency) {
       department: emergency.department,
       is_emergency: true,
       combined: false,
+      related: [emergency.task_id],
       date: seg.date,
       start_minute: seg.start_minute,
       end_minute: seg.end_minute,
     });
   }
+
+  const affectedEntries = [];
   for (const a of emergency.affected || []) {
     if (!a.proposed) continue;
     const sessions = a.proposed.sessions?.length
       ? a.proposed.sessions
-      : [{ date: a.proposed.date, start_minute: a.proposed.start_minute, end_minute: a.proposed.end_minute }];
+      : [{
+          date: a.proposed.date,
+          window_index: a.proposed.window_index,
+          start_minute: a.proposed.start_minute,
+          end_minute: a.proposed.end_minute,
+        }];
     for (const s of sessions) {
-      push(a.section_id, {
+      affectedEntries.push({
         task_id: a.task_id,
         department: a.department,
-        is_emergency: false,
-        combined: !!a.proposed.combined,
+        section_id: a.section_id,
         date: s.date,
+        window_index: s.window_index,
         start_minute: s.start_minute,
         end_minute: s.end_minute,
       });
     }
+  }
+
+  const byWindow = {};
+  for (const e of affectedEntries) {
+    if (e.window_index == null) continue;
+    const key = `${e.section_id}|${e.date}|${e.window_index}`;
+    (byWindow[key] ??= []).push(e);
+  }
+  for (const e of affectedEntries) {
+    const key = e.window_index != null ? `${e.section_id}|${e.date}|${e.window_index}` : null;
+    const sameWindow = key ? byWindow[key] : [e];
+    const combined = sameWindow.length > 1 && new Set(sameWindow.map((x) => x.department)).size > 1;
+    push(e.section_id, {
+      task_id: e.task_id,
+      department: e.department,
+      is_emergency: false,
+      combined,
+      related: combined ? sameWindow.map((x) => x.task_id) : [e.task_id],
+      date: e.date,
+      start_minute: e.start_minute,
+      end_minute: e.end_minute,
+    });
   }
 
   const out = {};
@@ -394,7 +433,12 @@ function SchedulePreviewModal({ emergency, resolving, onApprove, onClose }) {
       {detailTrain && <TrainDetailsModal train={detailTrain} sectionId={sectionId} onClose={() => setDetailTrain(null)} />}
 
       {detail && (
-        <BlockDetailsModal taskId={detail.task_id} showReject={false} onClose={() => setDetail(null)} />
+        <BlockDetailsModal
+          taskId={detail.task_id}
+          relatedTaskIds={detail.combined ? detail.related : null}
+          showReject={false}
+          onClose={() => setDetail(null)}
+        />
       )}
     </div>
   );
