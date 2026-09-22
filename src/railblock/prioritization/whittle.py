@@ -25,17 +25,16 @@ The index used here:
     whittle_index(task) = tier_rank(priority) * TIER_WIDTH
                            + continuous_score(task) / (1 + continuous_score(task)) * (TIER_WIDTH - 1)
 
-Session 30, at explicit user request, after a real reported gap: "I want
-all critical to rank above moderate tasks and all moderate tasks should
-rank above routine tasks ... whittle index should also be considered for
-ranking, but the order I said should remain." Before this, the index was
-simply `base_score * (1 + congestion)` with no tier structure at all --
-`priority_weight` (5.0/2.0/1.0, urgency.py) was just one multiplicative
-factor among several UNBOUNDED ones (days_overdue, congestion), so a
-Moderate task with enough accrued urgency/congestion could and did
-legitimately out-rank a fresh Critical one -- confirmed live against a
-real 70-task batch (whittle range ~1.9-43.4, Moderate's own max 17.7
-exceeding Critical's own min 12.8).
+The system enforces a strict tier ordering: every Critical task ranks
+above every Moderate task, and every Moderate task ranks above every
+Routine task; the whittle index only governs ordering WITHIN each tier.
+Without this constraint, the index would simply be `base_score * (1 +
+congestion)` with no tier structure at all -- `priority_weight`
+(5.0/2.0/1.0, urgency.py) would be just one multiplicative factor among
+several UNBOUNDED ones (days_overdue, congestion), so a Moderate task
+with enough accrued urgency/congestion could legitimately out-rank a
+fresh Critical one (observed against a real 70-task batch: whittle range
+~1.9-43.4, Moderate's own max 17.7 exceeding Critical's own min 12.8).
 
 A first fix tried a fixed additive per-tier gap -- rejected once a
 regression test built to stress it (days_overdue=1000 on an
@@ -61,13 +60,13 @@ why they matter here:
      sort, which is exactly what a naive urgency-only ranking already
      gives you.
   2. Boosted by resource scarcity in the task's own section -- an arm
-     competing for a nearly-saturated resource (e.g. MAS-AJJ, see Session
-     1's PROGRESS.md finding) has a higher OPPORTUNITY COST of staying
-     passive this period: if it isn't scheduled now, the scarce window may
-     simply not reopen soon. A static priority sort has no way to express
-     this; the congestion multiplier is precisely what makes this index
-     behave differently from urgency_score alone -- WITHIN a priority
-     tier (Session 30: no longer ACROSS tiers -- see above;
+     competing for a nearly-saturated resource (e.g. MAS-AJJ, see
+     PROGRESS.md) has a higher OPPORTUNITY COST of staying passive this
+     period: if it isn't scheduled now, the scarce window may simply not
+     reopen soon. A static priority sort has no way to express this; the
+     congestion multiplier is precisely what makes this index behave
+     differently from urgency_score alone -- WITHIN a priority tier, but
+     never ACROSS tiers (see
      tests/test_prioritization.py::test_congestion_reorders_within_a_tier_
      but_never_crosses_one).
 
@@ -94,19 +93,19 @@ from railblock.prioritization.urgency import PRIORITY_WEIGHT, score_urgency
 
 CONGESTION_EPS_HOURS = 1e-3
 
-# Session 30, at explicit user request -- see the module docstring's
-# `tier_offset` note above for the real gap this closes.
+# See the module docstring's tier-ordering discussion above for why a
+# strict per-tier separation is needed here.
 #
 # A first version of this used a fixed additive gap (Routine=0,
-# Moderate=1000, Critical=2000) sized against this corridor's REAL
-# observed whittle range (~1.9-43.4). A regression test deliberately
-# constructed to stress-test that gap (days_overdue=1000, a
-# near-saturated section) immediately broke it: congestion is a ratio
-# (demand_hours / free_hours) with no ceiling at all, so it can always
-# be pushed past ANY fixed finite gap by combining extreme-enough
-# congestion with extreme-enough days_overdue -- a FIXED additive
-# constant can never be an UNCONDITIONAL guarantee, only a "large enough
-# for data seen so far" one, which is not what "always" means.
+# Moderate=1000, Critical=2000) sized against this corridor's observed
+# whittle range (~1.9-43.4). A regression test deliberately constructed
+# to stress-test that gap (days_overdue=1000, a near-saturated section)
+# immediately broke it: congestion is a ratio (demand_hours / free_hours)
+# with no ceiling at all, so it can always be pushed past ANY fixed
+# finite gap by combining extreme-enough congestion with extreme-enough
+# days_overdue -- a FIXED additive constant can never be an
+# UNCONDITIONAL guarantee, only a "large enough for data seen so far"
+# one, which is not what "always" means.
 #
 # TIER_RANK/TIER_WIDTH below give a real unconditional guarantee
 # instead: `continuous_score / (1 + continuous_score)` maps ANY
@@ -117,7 +116,7 @@ CONGESTION_EPS_HOURS = 1e-3
 # [rank*TIER_WIDTH, rank*TIER_WIDTH + TIER_WIDTH), which can never reach
 # the next tier's floor -- by construction, not by hoping the inputs
 # stay reasonable. TIER_WIDTH=1000 still gives ~999 units of resolution
-# for realistic within-tier differences (this corridor's real
+# for realistic within-tier differences (this corridor's observed
 # continuous_score range of ~1.9-43.4 maps to roughly 65-977 of that).
 TIER_RANK = {"Critical": 2, "Moderate": 1, "Routine": 0}
 TIER_WIDTH = 1000.0
@@ -135,11 +134,11 @@ def compute_section_free_hours(
     Layer 1's compute_availability -- this IS the scarce "budget" the
     Whittle-style index reasons about opportunity cost against.
 
-    `availability_cache` (optional, Session 25): see
-    compute_availability's docstring -- shares this request's already-
-    computed (section, date) results with whoever else needs them (Layer
-    3's compute_daily_window_capacity) instead of recomputing the same
-    real occupancy data a second time."""
+    `availability_cache` (optional): see compute_availability's
+    docstring -- shares this request's already-computed (section, date)
+    results with whoever else needs them (Layer 3's
+    compute_daily_window_capacity) instead of recomputing the same
+    occupancy data a second time."""
     rows = []
     for section_id in sections["section_id"]:
         total_free_minutes = 0.0
@@ -195,18 +194,17 @@ def rank_tasks(
     schedule first). Sorted by priority_rank ascending. This is the exact
     shape Layer 3 consumes.
 
-    `availability_cache` (optional, Session 25, at explicit user request
-    for a large scheduling-time reduction): pass a fresh {} created once
-    per real scheduling request and reused across every call that needs
-    real per-section availability this same request (this function AND
-    railblock.scheduling.capacity.compute_daily_window_capacity) -- real
+    `availability_cache` (optional): pass a fresh {} created once per
+    scheduling request and reused across every call that needs
+    per-section availability this same request (this function AND
+    railblock.scheduling.capacity.compute_daily_window_capacity) --
     profiling showed the exact same (section, date) availability sweep
     being recomputed up to 3x per request (once here, once each for the
     critical-tasks-first Step A and Step D CP-SAT solves) against
     byte-identical occupancy data. See compute_availability's own
-    docstring. Omit for the old always-recompute behavior (still the
-    correct choice for a call that can't guarantee stable occupancy data
-    across its own lifetime, e.g. spanning more than one real request)."""
+    docstring. Omit for the always-recompute behavior (still the correct
+    choice for a call that can't guarantee stable occupancy data across
+    its own lifetime, e.g. spanning more than one request)."""
     out = tasks.copy()
     out["urgency_score"] = score_urgency(out)
     out["impact_weight"] = score_impact(out)
@@ -228,17 +226,16 @@ def rank_tasks(
     bounded_within_tier = continuous_score / (1 + continuous_score) * (TIER_WIDTH - 1)
     out["whittle_index"] = tier_rank * TIER_WIDTH + bounded_within_tier
 
-    # Session 24, at explicit user request: whittle_index itself has no
-    # natural upper bound (congestion = demand_hours / free_hours alone
-    # can grow arbitrarily large for a badly congested section, and
-    # days_overdue is open-ended too), so showing the raw number in the
-    # UI as a "score out of some limit" would need an invented cap with
-    # no real basis. Expressed instead as a real, bounded [0, 100]
-    # PERCENTILE RANK against every other task in THIS SAME `tasks`
-    # batch: "this task is more urgent than risk_percentage% of the
-    # tasks currently in the waiting list" -- a real, computed, always-
-    # meaningful number, deliberately RELATIVE to whichever batch is
-    # passed in (moves as the waiting list itself changes), not an
+    # whittle_index itself has no natural upper bound (congestion =
+    # demand_hours / free_hours alone can grow arbitrarily large for a
+    # badly congested section, and days_overdue is open-ended too), so
+    # showing the raw number in the UI as a "score out of some limit"
+    # would need an invented cap with no real basis. Expressed instead as
+    # a bounded [0, 100] PERCENTILE RANK against every other task in THIS
+    # SAME `tasks` batch: "this task is more urgent than risk_percentage%
+    # of the tasks currently in the waiting list" -- a computed,
+    # always-meaningful number, deliberately RELATIVE to whichever batch
+    # is passed in (moves as the waiting list itself changes), not an
     # absolute scale. A single-task batch is defined as 100% (trivially
     # the most urgent task right now).
     if len(out) > 1:

@@ -1,7 +1,8 @@
-"""Session 12: minimal .env loader -- no new dependency (python-dotenv)
-added just for one key. Reads PROJECT_ROOT/.env (gitignored, local-only)
-into os.environ on import, without overriding a variable already set in
-the real environment. Safe to import even if .env doesn't exist.
+"""Minimal .env loader -- avoids pulling in a new dependency
+(python-dotenv) just for a couple of keys. Reads PROJECT_ROOT/.env
+(gitignored, local-only) into os.environ on import, without overriding a
+variable already set in the real environment. Safe to import even if
+.env doesn't exist.
 """
 
 from __future__ import annotations
@@ -30,11 +31,10 @@ _load_dotenv()
 
 RAILRADAR_API_KEY = os.environ.get("RAILRADAR_API_KEY")
 
-# Session 13: PostgreSQL replaces SQLite entirely for app state (requests/
-# approved/recommendations/schedule_options) -- see railblock.api.store.
-# Default matches the local `railblock` role/database this session's setup
-# created (see PROGRESS.md); override via DATABASE_URL in .env for any
-# other environment.
+# PostgreSQL is used for all app state (requests/approved/recommendations/
+# schedule_options) -- see railblock.api.store. Default matches the local
+# `railblock` role/database created for development; override via
+# DATABASE_URL in .env for any other environment.
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://railblock:railblock@localhost:5432/railblock")
 
 # CP-SAT's own thread count per solve (model.py) and how many of

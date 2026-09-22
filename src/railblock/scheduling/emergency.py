@@ -1,20 +1,18 @@
-"""Session 30, at explicit user request: Emergency Handling.
+"""Emergency handling.
 
 Train cancellation/rescheduling is out of scope for this project (see
-orchestrator.py's own Session 30 note) -- an emergency here never touches
-a real train. Instead it is an instantly-placed, UNAPPROVED maintenance
+orchestrator.py's own note on this) -- an emergency here never touches a
+real train. Instead it is an instantly-placed, UNAPPROVED maintenance
 block (e.g. a rail fracture) that occupies real time on a section right
-now -- "a demo emergency situation has to be done as fast as possible",
-so it skips the normal request/approve pipeline entirely. What DOES need
-human approval is rescheduling whatever already-scheduled maintenance
-blocks it displaces -- via the exact same scheduling machinery every
-other task already uses (a single CP-SAT solve, allowed to combine with
-a different department already occupying a section's window), never a
-special "3-day loop" or any other bespoke strategy.
+now, skipping the normal request/approve pipeline entirely so it can be
+placed as fast as possible. What DOES need human approval is
+rescheduling whatever already-scheduled maintenance blocks it displaces
+-- via the exact same scheduling machinery every other task already uses
+(a single CP-SAT solve, allowed to combine with a different department
+already occupying a section's window), never a special bespoke strategy.
 
 Every call to `create_demo_emergency` makes a brand-new emergency -- no
-dedup, no reuse of a previous one, however many times the demo button is
-clicked.
+dedup, no reuse of a previous one, however many times it's invoked.
 """
 
 from __future__ import annotations
@@ -83,42 +81,36 @@ def create_demo_emergency(sections: pd.DataFrame, existing_rows: list[dict], now
     (from EMERGENCY_DEFECT_TYPES) and a duration drawn uniformly from
     [EMERGENCY_MIN_HOURS, EMERGENCY_MAX_HOURS].
 
-    Session 30, at explicit user request, after a real reported gap:
-    "always create an emergency situation such that one or more blocks
-    are affected" -- picking a purely random window starting exactly at
-    `now` left this to chance (this corridor's real schedule is sparse
-    enough that "something happens to be running in this exact instant"
-    often just isn't true).
+    An emergency is only useful for the reschedule flow if it actually
+    displaces at least one already-scheduled block. Picking a purely
+    random window starting exactly at `now` leaves that to chance --
+    this corridor's real schedule is sparse enough that "something
+    happens to be running in this exact instant" often just isn't true,
+    especially with a short emergency duration: late in the day, once
+    every block scheduled for the rest of today has already finished, a
+    search restricted to "today, whatever's left" can find nothing at
+    all even against a densely-scheduled batch.
 
-    Session 39, at explicit user request ("always ... at least affects
-    one of the already scheduled tasks"), after confirming live that
-    Session 30's original "today's calendar date only" search left a
-    real gap once EMERGENCY_MAX_HOURS was tightened way down from 10h to
-    4h (a much shorter emergency duration means "today, whatever's left"
-    is a much smaller net -- e.g. late in the day, once every block
-    scheduled for the rest of today has already finished, this found
-    nothing at all, even in a session with a real, densely-scheduled
-    70-task batch, confirmed live against this corridor's own real
-    schedule): the search horizon is now [now, now + EMERGENCY_MAX_HOURS)
-    -- the widest an emergency's real reach could ever be, not an
-    arbitrary calendar-day cutoff -- correctly spanning a midnight
-    boundary when `now` is late enough that it needs to. Still anchors
-    the emergency's own start to the chosen candidate's own real start
-    (clamped to never be earlier than `now`, same as before) rather than
-    always starting exactly at `now`: overlap is then guaranteed by
-    construction regardless of which specific duration gets drawn below
-    (the segment necessarily starts exactly when the candidate's own
-    window does, and any two windows sharing a start point with nonzero
-    length overlap) -- using `now` itself as the anchor point would only
-    guarantee overlap for a duration long enough to reach that specific
-    candidate, which isn't otherwise true for every draw in [1.5, 4]
-    hours. Never reintroduces Session 30's original bug (anchoring to a
-    task potentially DAYS away) since the search horizon is bounded by
-    this emergency's own real maximum duration, not "whatever's still
-    technically upcoming." Still falls back to a random section with no
-    guaranteed overlap only if truly nothing on the whole corridor is
-    scheduled anywhere within that reachable window -- now a much
-    tighter, much rarer gap than before."""
+    The search horizon is therefore [now, now + EMERGENCY_MAX_HOURS) --
+    the widest an emergency's real reach could ever be, not an arbitrary
+    calendar-day cutoff -- correctly spanning a midnight boundary when
+    `now` is late enough that it needs to. The emergency's own start is
+    anchored to the chosen candidate's own real start (clamped to never
+    be earlier than `now`) rather than always starting exactly at `now`:
+    overlap is then guaranteed by construction regardless of which
+    specific duration gets drawn below (the segment necessarily starts
+    exactly when the candidate's own window does, and any two windows
+    sharing a start point with nonzero length overlap) -- using `now`
+    itself as the anchor point would only guarantee overlap for a
+    duration long enough to reach that specific candidate, which isn't
+    otherwise true for every draw in [1.5, 4] hours. The search horizon
+    must stay bounded by this emergency's own real maximum duration, not
+    "whatever's still technically upcoming" -- otherwise the anchor
+    candidate could be found days away, producing an emergency that
+    effectively starts in the future rather than right now. Falls back
+    to a random section with no guaranteed overlap only if truly nothing
+    on the whole corridor is scheduled anywhere within that reachable
+    window."""
     duration_hours = float(rng.uniform(EMERGENCY_MIN_HOURS, EMERGENCY_MAX_HOURS))
 
     reachable_until = now + timedelta(hours=EMERGENCY_MAX_HOURS)
@@ -167,9 +159,9 @@ def find_affected_rows(emergency: dict, existing_rows: list[dict], now: datetime
     api/app.py's _expanded_schedule_rows: a split task contributes one
     row per real session), so a split task with two or more sessions
     that both happen to overlap must still only be offered ONCE for
-    reschedule. A real reported bug: without this, the SAME task_id fed
+    reschedule -- without this dedup, the SAME task_id would feed
     `rank_tasks`/`expand_splittable_tasks` as two+ separate rows, which
-    silently corrupted the CP-SAT part-expansion (two unrelated "part 1
+    silently corrupts the CP-SAT part-expansion (two unrelated "part 1
     of N" rows collapsing onto the identical part-level id)."""
     affected = []
     seen_task_ids: set[str] = set()
@@ -202,17 +194,15 @@ class RescheduleProposal:
 
 
 def _clip_capacity_to_now(capacity: pd.DataFrame, now: datetime) -> pd.DataFrame:
-    """Session 30, at explicit user request, after a real reported bug:
-    "the affected blocks must be rescheduled afterwards only" -- without
-    this, `now`'s own real calendar date still offered its FULL day of
-    candidate windows, including whatever's already earlier than the
-    actual current moment (a real window from, say, 09:00-11:00 is
-    still a legitimate real free interval today even at 14:00 -- Layer 1
-    has no reason to know a displaced task's re-placement is being
-    decided AFTER that time already passed). Drops any window on
-    `now`'s date that has already fully ended, and clips one straddling
-    `now` to start exactly at `now` -- so a reschedule proposal can
-    never land earlier today than the real moment it was computed at."""
+    """A reschedule proposal must never land earlier today than the real
+    moment it's being computed at. Without this, `now`'s own calendar
+    date still offers its FULL day of candidate windows, including
+    whatever's already earlier than the current moment (a window from,
+    say, 09:00-11:00 is still a legitimate free interval today even at
+    14:00 -- Layer 1 has no reason to know a displaced task's
+    re-placement is being decided AFTER that time already passed). Drops
+    any window on `now`'s date that has already fully ended, and clips
+    one straddling `now` to start exactly at `now`."""
     if capacity.empty:
         return capacity
     today_iso = now.date().isoformat()
@@ -295,56 +285,50 @@ def propose_reschedule(
     lookup GET /requests/{task_id} already does. `now`: the real moment
     this reschedule is being decided at -- see _clip_capacity_to_now.
 
-    Session 30, at explicit user request, after a real reported gap:
-    "how can two tasks have no alternative slot found? there is no limit
-    for the horizon, first keep horizon to 1 day, if some tasks are not
-    scheduled, then increment the horizon ... repeat till all tasks are
-    scheduled." A single fixed n_days=7 attempt could genuinely run out
-    of real room for every affected task even though a real, valid slot
-    existed further out (due dates in this corridor's real data reach
-    weeks out -- see RecommendedScheduling.jsx's own Session 30 note on
-    exactly this). Starts at a 1-day horizon and widens (see
-    `_next_horizon`), re-solving the WHOLE affected batch together each
-    time (never just the still-unplaced remainder -- a task placed at a
-    smaller horizon must stay visible as a genuine combining candidate
-    for one that only finds room at a larger horizon), stopping the
-    moment every task has a real proposed slot.
+    A single fixed n_days=7 attempt can genuinely run out of real room
+    for every affected task even though a valid slot exists further out
+    (due dates in this corridor's data reach weeks out -- see
+    RecommendedScheduling.jsx's own note on exactly this). Starts at a
+    1-day horizon and widens (see `_next_horizon`), re-solving the WHOLE
+    affected batch together each time (never just the still-unplaced
+    remainder -- a task placed at a smaller horizon must stay visible as
+    a genuine combining candidate for one that only finds room at a
+    larger horizon), stopping the moment every task has a proposed slot.
 
-    Two safety bounds, not the literal "no limit" asked for -- this runs
-    synchronously inside one live HTTP request, so an unconditional loop
-    is a real hang risk, not just a slow-but-eventually-correct one:
+    Two safety bounds, since this runs synchronously inside one live
+    HTTP request and an unconditional widening loop is a real hang risk,
+    not just a slow-but-eventually-correct one:
       - `max_n_days` (120, comfortably past this corridor's longest real
         due-date window of ~60 days): stop widening past this, however
         many tasks are still unplaced.
-      - `max_wall_clock_s` (120s -- a real reported bug: an earlier
-        version with time_limit_s=15 per attempt and a literal +1
-        widening step took over two minutes and had to be killed; a
-        FIRST fix at 25s then turned out to cut the search off before it
-        genuinely found a real slot for two small, ordinary, splittable
-        tasks that DID resolve given enough time -- confirmed directly by
-        re-running just those two in isolation with a wider budget).
-        Checked BETWEEN attempts (an individual CP-SAT solve's own
-        `time_limit_s` already bounds any SINGLE attempt) -- whatever's
-        still unplaced when this is hit is reported as "no alternative
-        slot found" rather than making the request hang indefinitely."""
+      - `max_wall_clock_s` (120s): an earlier version with
+        time_limit_s=15 per attempt and a +1-per-step widening schedule
+        took over two minutes to return and had to be killed; a first
+        fix at 25s then cut the search off before it found a slot for
+        two small, ordinary, splittable tasks that DID resolve given
+        enough time, confirmed by re-running just those two in isolation
+        with a wider budget. Checked BETWEEN attempts (an individual
+        CP-SAT solve's own `time_limit_s` already bounds any SINGLE
+        attempt) -- whatever's still unplaced when this is hit is
+        reported as "no alternative slot found" rather than making the
+        request hang indefinitely."""
     if not affected_tasks:
         return []
 
-    # Session 34, at explicit user request, after a real reported gap
-    # ("it takes around 2 mins to load emergency situation"): confirmed
-    # live -- a single real /emergency/create call against a populated
-    # session took 2m25s, and the CP-SAT solve itself is already bounded
-    # (time_limit_s=5.0 per attempt) -- the actual cost is compute_
-    # availability(), called by both rank_tasks and compute_daily_window_
-    # capacity, with NO cache at all, re-run from scratch at EVERY
-    # widening step (1,2,3,4,5,6,7,14,28,56,112 -- up to 11 attempts).
-    # Two separate redundant-computation costs were found, both fixed
-    # the same way -- generate/compute ONCE at the largest horizon this
-    # call could ever reach, then reuse across every widening attempt,
-    # rather than redoing days 0..n_days-1 from scratch every time:
+    # A single /emergency/create call against a populated schedule could
+    # take 2m25s to return, even though the CP-SAT solve itself is
+    # already bounded (time_limit_s=5.0 per attempt) -- the actual cost
+    # is compute_availability(), called by both rank_tasks and
+    # compute_daily_window_capacity, with NO cache at all, re-run from
+    # scratch at EVERY widening step (1,2,3,4,5,6,7,14,28,56,112 -- up to
+    # 11 attempts). Three separate redundant-computation costs were
+    # found and fixed, the first two the same way -- generate/compute
+    # ONCE at the largest horizon this call could ever reach, then reuse
+    # across every widening attempt, rather than redoing days
+    # 0..n_days-1 from scratch every time:
     #
     # 1. compute_availability's own cache is keyed purely on (section_id,
-    #    date) (see corridor_availability.py's Session 25 note), and its
+    #    date) (see corridor_availability.py's own note on this), and its
     #    result for a given (section, date) can never change between
     #    attempts (same passenger_occupancy, same goods_occupancy content
     #    for that date -- see point 2). `availability_cache` is created
@@ -362,8 +346,8 @@ def propose_reschedule(
     #    (comfortably covering every n_days this loop can ever reach) and
     #    reusing that same frame avoids ever redoing that slow generation.
     #
-    #    Measured live, this alone was NOT enough, and at first even made
-    #    an early (small-n_days) attempt slightly SLOWER: _goods_intervals/
+    #    That alone was NOT enough on its own, and at first even made an
+    #    early (small-n_days) attempt slightly SLOWER: _goods_intervals/
     #    _passenger_intervals (corridor_availability.py) filter with a
     #    plain pandas boolean mask over however big a frame they're given
     #    -- O(rows in the frame), not O(rows that actually match) -- so
@@ -375,23 +359,23 @@ def propose_reschedule(
     #    keeps every attempt's own filtering cost proportional to what it
     #    actually needs, while still generating the underlying data only
     #    once.
-    # A THIRD, much bigger cost was found the same way, live: compute_
-    # availability's own per-call work (_passenger_intervals iterates
-    # every real passenger row on a section via .iterrows(), plus a real
-    # delay-margin model lookup per row -- see corridor_availability.py's
-    # own Session 26 note on how expensive that model call is) was being
-    # paid for all 56 corridor sections at every widening step, even
-    # though a displaced task can only ever be RE-placed on the exact
-    # section it was already on -- model.py's own solve only ever builds
-    # assign[] variables from `windows_by_section[task's own section_id]`,
-    # never any other section, and combine_into_occupied_windows' own
-    # candidate search requires `ranked_tasks["section_id"] ==
-    # w["section_id"]` too -- so a window on a section none of the
-    # affected tasks occupy can never be combined into either. Measured
-    # live: at n_days=112, first-time-computing all 56 sections' worth of
-    # NEWLY-added days took 48.89s by itself; restricting to only the
-    # affected tasks' own (typically far fewer than 56) unique sections
-    # cuts that proportionally, with no lost combining opportunity.
+    # 3. A much bigger cost: compute_availability's own per-call work
+    #    (_passenger_intervals iterates every passenger row on a section
+    #    via .iterrows(), plus a delay-margin model lookup per row -- see
+    #    corridor_availability.py's own note on how expensive that model
+    #    call is) was being paid for all 56 corridor sections at every
+    #    widening step, even though a displaced task can only ever be
+    #    RE-placed on the exact section it was already on -- model.py's
+    #    own solve only ever builds assign[] variables from
+    #    `windows_by_section[task's own section_id]`, never any other
+    #    section, and combine_into_occupied_windows' own candidate search
+    #    requires `ranked_tasks["section_id"] == w["section_id"]` too --
+    #    so a window on a section none of the affected tasks occupy can
+    #    never be combined into either. At n_days=112, first-time-
+    #    computing all 56 sections' worth of newly-added days took 48.89s
+    #    by itself; restricting to only the affected tasks' own
+    #    (typically far fewer than 56) unique sections cuts that
+    #    proportionally, with no lost combining opportunity.
     relevant_sections = sections[sections["section_id"].isin({t["section_id"] for t in affected_tasks})]
 
     availability_cache: dict = {}
@@ -429,7 +413,7 @@ def _propose_reschedule_at_horizon(
     widening-horizon loop around this. `availability_cache`: shared across
     every widening attempt in the SAME propose_reschedule call (and
     between ranking and capacity within this one attempt) -- see
-    propose_reschedule's own Session 34 note for why that's safe."""
+    propose_reschedule's own caching note for why that's safe."""
     old_by_id = {t["task_id"]: {"date": t["date"], "start_minute": t["start_minute"], "end_minute": t["end_minute"]} for t in affected_tasks}
     task_df = pd.DataFrame(affected_tasks)
 
@@ -454,19 +438,18 @@ def _propose_reschedule_at_horizon(
         # session preserved, not just the first -- losing the rest would
         # silently under-report what actually got scheduled.
         #
-        # Session 30 fix, after a real reported bug: whether a session
-        # is genuinely combined is NOT the same as the schedule row's
-        # own `option` field being "combined" -- that value is only ever
-        # set by the pre-CP-SAT forcing passes (force_combinable_
-        # placements/combine_into_occupied_windows). When the core
-        # CP-SAT solve organically places two different-department tasks
-        # into the SAME real window on its own (its normal, intended
-        # behavior -- see model.py's COORDINATION_BONUS), the resulting
-        # schedule rows still say option="whole"/"split", never
-        # "combined", even though they physically share the window.
-        # RecommendedScheduling.jsx's own buildBlocksBySection already
-        # gets this right by checking the WINDOWS table's own `combined`
-        # flag instead -- same fix, here.
+        # Whether a session is genuinely combined is NOT the same as the
+        # schedule row's own `option` field being "combined" -- that
+        # value is only ever set by the pre-CP-SAT forcing passes
+        # (force_combinable_placements/combine_into_occupied_windows).
+        # When the core CP-SAT solve organically places two different-
+        # department tasks into the SAME real window on its own (its
+        # normal, intended behavior -- see model.py's COORDINATION_
+        # BONUS), the resulting schedule rows still say
+        # option="whole"/"split", never "combined", even though they
+        # physically share the window. Checking the WINDOWS table's own
+        # `combined` flag instead (as RecommendedScheduling.jsx's own
+        # buildBlocksBySection does) avoids that trap.
         d, w, s, e = sessions[0]
         combined = bool(window_lookup.get((section_id, d, w), False))
         return {

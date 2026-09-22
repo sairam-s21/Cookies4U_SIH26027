@@ -5,8 +5,8 @@ import { ErrorBanner, InfoBanner, Spinner } from "../components/StatusBanner.jsx
 
 const PRIORITY_CLASS = { Critical: "crit", Moderate: "mod", Routine: "rou" };
 
-// Session 17: granted blocks whose real (date, start_minute, end_minute)
-// window has already ended, relative to real current time -- see
+// Granted blocks whose (date, start_minute, end_minute) window has
+// already ended, relative to current time -- see
 // GET /tasks/history/completed and railblock.synthetic.granted_history.
 export default function CompletedHistory() {
   const [data, setData] = useState(null);

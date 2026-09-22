@@ -1,11 +1,11 @@
-"""Session 13: the validation + derived-field logic for turning one
-BlockRequestIn into a stored request row -- shared by POST /requests
-(app.py) and railblock.integrations.import_tasks (the CSV/JSON batch
-importer that replaced the "Raise Block Request" UI form, since real COA
-receives batch task lists from TDMS/SMMS/etc., not one-at-a-time web
-submissions). Kept in its own module, separate from both app.py (so the
-importer doesn't need FastAPI) and store.py (a pure persistence layer),
-so there is exactly one place this logic can drift.
+"""Validation + derived-field logic for turning one BlockRequestIn into a
+stored request row -- shared by POST /requests (app.py) and
+railblock.integrations.import_tasks (the CSV/JSON batch importer that
+replaced the "Raise Block Request" UI form, since real COA receives batch
+task lists from TDMS/SMMS/etc., not one-at-a-time web submissions). Kept
+in its own module, separate from both app.py (so the importer doesn't
+need FastAPI) and store.py (a pure persistence layer), so there is
+exactly one place this logic can drift.
 """
 
 from __future__ import annotations

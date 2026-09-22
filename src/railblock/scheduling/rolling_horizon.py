@@ -1,8 +1,8 @@
-"""Session 6, Tasks 1-2: due-date-aware rolling horizon + backlog carryover.
+"""Due-date-aware rolling horizon + backlog carryover.
 
-Sessions 2-5 measured completion against a FIXED test-window boundary (7
-or 28 days), not each task's own `due_date` (Session 1: Critical 3-7 days,
-Moderate 15-30, Routine 45-90). A Routine task not yet scheduled by day 7
+Completion must be measured against each task's own `due_date` (Critical
+3-7 days, Moderate 15-30, Routine 45-90), not a FIXED test-window
+boundary (e.g. 7 or 28 days). A Routine task not yet scheduled by day 7
 has not failed anything -- it may have 80+ days left. This module runs
 Layer 4's existing weekly solve repeatedly across a horizon long enough to
 cover the longest real SLA (90 days), and classifies each task's TRUE
@@ -12,33 +12,31 @@ outcome against its own due_date:
   - "late": fully scheduled, but after its own due_date.
   - "unscheduled": never fully scheduled within the whole run.
 
-Carryover verified NOT to already exist anywhere in the codebase before
-writing this (grepped for carryover/rolling/leftover-pool logic in
-scheduling/* -- none found; every prior session's weekly/monthly call
-operates on a single, self-contained task batch with no memory of
-previous weeks). Implemented here: a task not fully scheduled in week N
-remains a candidate in week N+1's pool, re-ranked with its `days_overdue`
-recomputed against week N+1's own date (not frozen at the horizon's start)
-so an aging task's urgency score correctly grows as its due date
-approaches/passes, per Layer 2's existing formula -- this is the
-"recalculated as appropriate" behaviour the brief asks for, achieved by
-feeding Layer 2's unmodified urgency formula a fresher `days_overdue`
-each week, not by changing the formula itself.
+No carryover/rolling/leftover-pool logic exists elsewhere in
+scheduling/* -- every other weekly/monthly call operates on a single,
+self-contained task batch with no memory of previous weeks. Implemented
+here: a task not fully scheduled in week N remains a candidate in week
+N+1's pool, re-ranked with its `days_overdue` recomputed against week
+N+1's own date (not frozen at the horizon's start) so an aging task's
+urgency score correctly grows as its due date approaches/passes, per
+Layer 2's existing formula -- this achieves the desired "recalculated as
+appropriate" urgency behaviour by feeding Layer 2's unmodified formula a
+fresher `days_overdue` each week, not by changing the formula itself.
 
 Deliberately does NOT modify Layer 3's Option 1-3 mechanics, Layer 4's
 per-week solve, or the corridor model -- each week's solve is an
 unmodified call to solve_schedule_with_options; this module only adds the
 week-to-week bookkeeping loop and due-date classification around it.
 
-Known, stated simplification: a task "partial"ly completed in one week
-(some but not all of its split sessions placed) is re-queued as a FRESH
-whole task for the following week rather than carrying forward only its
-remaining hours -- preserving partial progress across week boundaries
-would mean extending Session 3's Option 2 splitting/tracking mechanics,
-explicitly out of scope this session (see PROGRESS.md Session 6). Its
-`first_partial_week` is recorded for visibility; its actual outcome is
-whichever later week it appears in that week's `result.schedule` (fully
-done), or "unscheduled" if that never happens within the horizon.
+Known simplification: a task "partial"ly completed in one week (some but
+not all of its split sessions placed) is re-queued as a FRESH whole task
+for the following week rather than carrying forward only its remaining
+hours -- preserving partial progress across week boundaries would mean
+extending Option 2's splitting/tracking mechanics to be horizon-aware,
+which this module does not attempt. Its `first_partial_week` is recorded
+for visibility; its actual outcome is whichever later week it appears in
+that week's `result.schedule` (fully done), or "unscheduled" if that
+never happens within the horizon.
 """
 
 from __future__ import annotations
@@ -74,7 +72,7 @@ def run_rolling_horizon(
     passenger_occupancy: pd.DataFrame,
     horizon_days: int,
     start_date: Date,
-    time_limit_s: float = 120.0,  # Session 13: raised from 20 -- see schemas.RecommendRequest. Only affects the offline/precompute path, not a live-clicked request.
+    time_limit_s: float = 120.0,  # see schemas.RecommendRequest for the reasoning behind this default. Only affects the offline/precompute path, not a live-clicked request.
     goods_seed: int | None = None,
     goods_occupancy_override: pd.DataFrame | None = None,
 ) -> RollingHorizonResult:
@@ -106,8 +104,8 @@ def run_rolling_horizon(
             # output can be already-overdue the moment it's created (raise_offset up
             # to 120 days back vs a due window as short as 3-90 days) -- this flag lets
             # "genuinely late due to scheduling" be told apart from "was pre-existing
-            # backlog no scheduling speed could have made on-time" (see PROGRESS.md
-            # Session 6 for why this distinction turned out to matter a lot).
+            # backlog no scheduling speed could have made on-time", a distinction that
+            # matters a lot for correctly interpreting the outcome breakdown.
             "was_already_overdue_at_generation": bool(row["days_overdue"] > 0),
             "status": "unscheduled",
             "completed_date": None,

@@ -16,15 +16,13 @@ const STATUS_LABEL = {
 // Scheduling when the COA selects a schedule option; a task leaves this
 // list automatically once that happens.
 //
-// Session 39, at explicit user request, replacing Session 32's manual
-// "Create demo batch of tasks" / "Reset" buttons: the 70 real tasks now
-// load automatically the first time a given browser tab ever visits
-// (X-Session-Id is a UUID in sessionStorage -- see api/session.js -- so
-// this is once per tab/browser session, reset on close+reopen, never on
-// a plain refresh). The actual auto-load now happens once, centrally,
-// in Layout.jsx (see api/ensureDemoBatch.js) BEFORE any routed page
-// mounts -- Dashboard included -- so this page's own load() below can
-// stay a plain read with no activation logic of its own.
+// The demo task batch loads automatically the first time a given browser
+// tab ever visits (X-Session-Id is a UUID in sessionStorage -- see
+// api/session.js -- so this is once per tab/browser session, reset on
+// close+reopen, never on a plain refresh). That auto-load happens once,
+// centrally, in Layout.jsx (see api/ensureDemoBatch.js) before any
+// routed page mounts -- Dashboard included -- so this page's own load()
+// below stays a plain read with no activation logic of its own.
 export default function WaitingList() {
   const [requests, setRequests] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -50,10 +48,10 @@ export default function WaitingList() {
     load().finally(() => setLoading(false));
   }, []);
 
-  // Session 21, at explicit user request: two real orders --
-  // "Whittle index rank order" (real Layer 2 risk score, highest first,
-  // from GET /requests/whittle-rank) and "newly raised block request
-  // order" (GET /requests' own most-recent-first order, unchanged).
+  // Two sort orders: "Whittle index rank order" (Layer 2 risk score,
+  // highest first, from GET /requests/whittle-rank) and "newly raised
+  // block request order" (GET /requests' own most-recent-first order,
+  // unchanged).
   const sortedRequests = useMemo(() => {
     if (sortMode !== "whittle") return requests;
     return [...requests].sort((a, b) => {

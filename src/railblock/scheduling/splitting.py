@@ -30,28 +30,21 @@ from __future__ import annotations
 
 import pandas as pd
 
-# Session 13: raised 3 -> 6, after empirically diagnosing why most
-# unscheduled tasks were genuinely infeasible even after splitting: this
-# corridor's real windows (capacity.py's documented fragmentation) are
-# often only 50-120 minutes long on busy sections, so a task split into
-# just 3 parts could still have each part exceed the largest available
-# window. 6 sessions is a defensible, real-world-plausible cap for
-# genuinely splittable work (already restricted to defect types where
-# incremental, staged repair is realistic -- see SPLITTABLE) -- not
-# picked backward from a target completion percentage: it was tested
-# empirically against real corridor capacity and confirmed to actually
-# rescue tasks that 3 sessions couldn't, without touching demand volume
-# or duration data at all.
-#
-# Session 30: raised 6 -> 10, same empirical methodology, after a real
-# reported case this cap still couldn't rescue: TDMS-REQ-00054 (4.14h =
-# 248.4 real minutes) on PCKM-AB, whose real windows never exceed ~30
-# minutes anywhere across a full real 90-day sample -- even the 6
-# LARGEST real windows available only sum to ~181 minutes, genuinely
-# short regardless of which start_date/horizon is searched (this
-# section's real weekday train pattern repeats, so widening the horizon
-# further changes nothing). The top 9 sum to ~271.5 minutes -- enough.
-# 10 keeps a real margin above that measured floor.
+# This corridor's real windows (capacity.py's documented fragmentation)
+# are often only 50-120 minutes long on busy sections, so a task split
+# into too few parts can still have each part exceed the largest
+# available window. The cap here is not picked backward from a target
+# completion percentage -- it was tested empirically against real
+# corridor capacity and set to actually rescue tasks that a smaller cap
+# couldn't, without touching demand volume or duration data at all. A
+# concrete case that drove the current value: TDMS-REQ-00054 (4.14h =
+# 248.4 minutes) on PCKM-AB, whose windows never exceed ~30 minutes
+# anywhere across a full 90-day sample -- even the 6 largest windows
+# available only sum to ~181 minutes, genuinely short regardless of
+# which start_date/horizon is searched (this section's weekday train
+# pattern repeats, so widening the horizon further changes nothing). The
+# top 9 windows sum to ~271.5 minutes -- enough; 10 keeps a margin above
+# that measured floor.
 MAX_SPLIT_SESSIONS = 10
 
 
@@ -71,39 +64,39 @@ def expand_splittable_tasks(
     (1-based), `n_parts`. Non-split tasks get part_index=1, n_parts=1,
     parent_task_id == task_id, otherwise unchanged.
 
-    Session 26, at explicit user request, after a real diagnosed gap: part
-    SIZES are now matched against this section's actual real window sizes
+    Part SIZES are matched against this section's actual window sizes
     (largest first), not a blind equal division of the total duration. A
     task split into equal shares can land exactly on the size of a window
     that never exists anywhere real (e.g. 218 min split into three 72-min
     equal shares, when the section's real windows that week were
-    106.6/76.6/76.6/36/36/36 minutes) -- CP-SAT is never even offered a
-    part sized to fit a genuinely available window another department's
-    task is already using, so a real combining opportunity (the +50
-    COORDINATION_BONUS, see model.py) is silently never considered, not
-    rejected. Sizing each part to an actual window closes that gap: the
-    solver is now offered a candidate part that could physically share a
-    real window, and remains free to place it elsewhere if that scores
-    better. `n_parts` itself is unchanged (still 2 vs MAX_SPLIT_SESSIONS,
-    same threshold as before) -- only how the total is divided among them.
+    106.6/76.6/76.6/36/36/36 minutes) -- CP-SAT would never even be
+    offered a part sized to fit a genuinely available window another
+    department's task is already using, so a real combining opportunity
+    (the +50 COORDINATION_BONUS, see model.py) would silently never be
+    considered, not rejected. Sizing each part to an actual window closes
+    that gap: the solver is offered a candidate part that could
+    physically share a real window, and remains free to place it
+    elsewhere if that scores better. `n_parts` itself is decided
+    separately (still 2 vs MAX_SPLIT_SESSIONS) -- this only changes how
+    the total is divided among them.
 
     `combinable_partner_minutes`: {task_id: [partner's own duration in
-    minutes, ...]}, from railblock.scheduling.combining -- Session 26's
-    "check same section, then due-date overlap, then different
-    department" pre-processing pass. When a task has an identified
+    minutes, ...]}, from railblock.scheduling.combining's "check same
+    section, then due-date overlap, then different department"
+    pre-processing pass. When a task has an identified
     partner, one of its part sizes is aimed at that partner's SPECIFIC
     duration (capped to a real window), not just "some real window is
     this big" -- a more precisely-targeted candidate for the coordination
     bonus. CP-SAT still decides whether to actually place them together;
     this only makes sure it's genuinely offered the option.
     """
-    # Session 26 fix, after a real reported gap: keep each window's real
-    # DATE alongside its size, not just a flat sorted-by-size list --
-    # sizing a part against a window that exists somewhere in the whole
-    # horizon but falls AFTER this specific task's own due_date (or
-    # before its raised_date) offers a candidate size the task can never
-    # actually use, which can leave a genuinely-too-large leftover chunk
-    # relative to what's really reachable within its own real deadline.
+    # Each window's DATE is kept alongside its size, not just a flat
+    # sorted-by-size list -- sizing a part against a window that exists
+    # somewhere in the whole horizon but falls AFTER this specific
+    # task's own due_date (or before its raised_date) would offer a
+    # candidate size the task can never actually use, which can leave a
+    # genuinely-too-large leftover chunk relative to what's really
+    # reachable within its own deadline.
     windows_by_section: dict[str, list[tuple[str, float]]] = {}
     if not capacity.empty:
         for section_id, grp in capacity.groupby("section_id"):
@@ -121,23 +114,22 @@ def expand_splittable_tasks(
             # already sorted by size descending -- filtering preserves that order
             section_windows = [minutes for date, minutes in all_windows if raised <= date <= due]
             if not section_windows and all_windows:
-                # Session 30 fix, after a real reported bug: due_date is
-                # NOT a hard scheduling constraint in model.py (it only
-                # affects on_time tagging, never whether a window can be
-                # assigned) -- confirmed live: a task whose own
-                # [raised_date, due_date] genuinely doesn't overlap the
-                # search horizon at all (e.g. the caller picked a
-                # start_date well after this task's due_date) fell all
-                # the way through to the "no real window data" blind
-                # equal-split below, even though real window data DID
-                # exist for this section elsewhere in the horizon -- a
-                # section with unusually tiny real windows (PCKM-AB:
-                # max ~30 real minutes anywhere) then produced part
-                # sizes bigger than any real window, guaranteeing total
-                # failure. Falls back to this section's real window
-                # sizes from ANYWHERE in the horizon instead of going
-                # blind -- the solver can genuinely place a part sized
-                # to one of these regardless of due_date.
+                # due_date is NOT a hard scheduling constraint in
+                # model.py (it only affects on_time tagging, never
+                # whether a window can be assigned). A task whose own
+                # [raised_date, due_date] doesn't overlap the search
+                # horizon at all (e.g. the caller picked a start_date
+                # well after this task's due_date) must not fall through
+                # to the "no real window data" blind equal-split below
+                # when real window data DOES exist for this section
+                # elsewhere in the horizon -- on a section with
+                # unusually tiny windows (PCKM-AB: max ~30 minutes
+                # anywhere), a blind split would produce part sizes
+                # bigger than any real window, guaranteeing total
+                # failure. Falls back to this section's window sizes
+                # from ANYWHERE in the horizon instead of going blind --
+                # the solver can genuinely place a part sized to one of
+                # these regardless of due_date.
                 section_windows = [minutes for _date, minutes in all_windows]
         else:
             section_windows = [minutes for _date, minutes in all_windows]
@@ -166,18 +158,17 @@ def expand_splittable_tasks(
             remaining = required_minutes
             parts = []
             for i in range(n_parts):
-                # Session 26 fix, after a real reported bug: greedily
-                # taking a FULL real window/partner size for each of the
-                # first several parts can exhaust `required_minutes`
+                # Greedily taking a FULL window/partner size for each of
+                # the first several parts can exhaust `required_minutes`
                 # before every one of the n_parts slots has been used,
-                # leaving phantom 0-minute (or near-zero, e.g. 3 real
+                # leaving phantom 0-minute (or near-zero, e.g. 3
                 # seconds) trailing "parts" that do no real work and
-                # can't fit or combine with anything -- they were
-                # silently wasting MAX_SPLIT_SESSIONS budget and, worse,
-                # letting force_combinable_placements commit a
-                # "combined" window over 0 real minutes. Stop generating
-                # parts the moment nothing meaningful is left, instead
-                # of always emitting exactly n_parts rows.
+                # can't fit or combine with anything -- wasting
+                # MAX_SPLIT_SESSIONS budget and, worse, letting
+                # force_combinable_placements commit a "combined" window
+                # over 0 real minutes. Stop generating parts the moment
+                # nothing meaningful is left, instead of always emitting
+                # exactly n_parts rows.
                 if remaining <= 0.01:
                     break
                 if i == n_parts - 1:

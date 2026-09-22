@@ -7,10 +7,9 @@ import { ErrorBanner, InfoBanner, Spinner } from "../components/StatusBanner.jsx
 
 const LIVE_FOLLOW_TICK_MS = 30000;
 
-// Session 17: real LOCAL date, not toISOString()'s UTC date -- the map
-// previously showed "yesterday" for roughly the first 5.5 hours of every
-// IST day (00:00-05:30 IST is still the previous day in UTC), a real bug,
-// not a display quirk.
+// Local date, not toISOString()'s UTC date -- using the UTC date would
+// show "yesterday" for roughly the first 5.5 hours of every IST day
+// (00:00-05:30 IST is still the previous day in UTC).
 function isoLocalDateOf(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -27,14 +26,12 @@ export default function CorridorMapPage() {
   const [grantedHistory, setGrantedHistory] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
-  // Session 29, at explicit user request, after a real reported bug:
-  // these used to read the VIEWER's own machine clock directly --
-  // confirmed live to genuinely disagree with the server's real clock.
-  // `clockOffsetMs` (server-real-now minus this browser's own Date.now(),
+  // `clockOffsetMs` (server-now minus this browser's own Date.now(),
   // captured once via GET /now on mount) corrects every subsequent
   // local clock read without needing to re-poll the server every tick --
-  // `correctedNow()` is this browser's own fast clock, just shifted by
-  // that one real, measured offset.
+  // a viewer's machine clock can disagree with the server's, so reading
+  // it directly isn't reliable. `correctedNow()` is this browser's own
+  // fast clock, just shifted by that one measured offset.
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
   const correctedNow = () => new Date(Date.now() + clockOffsetMs);
   const [selectedDate, setSelectedDate] = useState(isoLocalDateOf(correctedNow()));
@@ -73,15 +70,14 @@ export default function CorridorMapPage() {
         if (cancelled) return;
         setCorridor(c);
         setWeekly(w);
-        // Session 18, at explicit user request: the map previously only
-        // ever drew highlighting from GET /schedule/weekly (live-approved
-        // tasks only), so a currently-active block from the fixed
-        // granted-history dataset (Dashboard's "Currently Active Blocks")
-        // never showed up here even while it was genuinely happening.
-        // Both endpoints below can include live-approved rows too (see
-        // their own docstrings) -- keep only the granted-history ones
-        // (they never carry completion_verified, unlike a live row) so a
-        // live-approved task isn't double-drawn (it's already in `weekly`).
+        // The map draws highlighting both from GET /schedule/weekly
+        // (live-approved tasks) and from the granted-history dataset
+        // (Dashboard's "Currently Active Blocks"), so an active block
+        // from either source shows up here. Both endpoints below can
+        // include live-approved rows too (see their own docstrings) --
+        // keep only the granted-history ones (they never carry
+        // completion_verified, unlike a live row) so a live-approved
+        // task isn't double-drawn (it's already in `weekly`).
         const isGrantedHistory = (row) => !("completion_verified" in row);
         setGrantedHistory([
           ...hist.tasks.filter(isGrantedHistory),
@@ -110,19 +106,14 @@ export default function CorridorMapPage() {
   // stretches. Every one of the 56 real sections is represented, whether
   // or not it has maintenance right now.
   //
-  // Session 18, at explicit user request, after a real bug: this
-  // previously highlighted a section for its ENTIRE day the moment any
-  // block existed on that date, ignoring the Time slider entirely --
-  // once granted-history rows were wired in (each with its own real
-  // hour-of-day window, unlike the old weekly-only view which mostly
-  // showed only what was picked to be "today"'s single recommendation
-  // run), this surfaced as blocks that had already ended or hadn't
-  // started yet still showing as highlighted "right now." Both sources
-  // are now filtered by whether the selected minute actually falls
-  // inside the block's real (start_minute, end_minute) window -- a
-  // negotiated-exception entry with no modeled time (start/end both
-  // null) is the one exception, shown for the whole day since there's
-  // no real time to filter it by.
+  // Both weekly and granted-history sources are filtered by whether the
+  // selected minute actually falls inside the block's (start_minute,
+  // end_minute) window, rather than highlighting a section for its
+  // entire day the moment any block exists on that date -- otherwise a
+  // block that already ended or hasn't started yet would still show as
+  // highlighted "right now." A negotiated-exception entry with no
+  // modeled time (start/end both null) is the one exception, shown for
+  // the whole day since there's no time to filter it by.
   const daySegments = useMemo(() => {
     const sections = (corridor?.sections || []).map((s) => ({ ...s, department: null, combined: false, is_emergency: false, departments: new Set() }));
     if (!selectedDate) return sections;
@@ -137,14 +128,12 @@ export default function CorridorMapPage() {
         const entries = weekly.cells[sec.section_id]?.[selectedDate] || [];
         entries.filter((e) => isNowInWindow(e.start_minute, e.end_minute)).forEach((e) => {
           sec.departments.add(e.department);
-          // Session 34, at explicit user request, after a real reported
-          // gap: an emergency's own block was already in `weekly.cells`
-          // (GET /schedule/weekly already includes it, see
-          // api/app.py's weekly_matrix/_emergency_block_rows), but it
-          // was only ever treated as an ordinary department block here
-          // -- never flagged so the map could give it its own distinct
-          // red highlight (CorridorMap.jsx) instead of blending into
-          // whatever department color it happens to carry.
+          // An emergency's own block is already in `weekly.cells` (GET
+          // /schedule/weekly includes it, see api/app.py's
+          // weekly_matrix/_emergency_block_rows) -- flag it here so the
+          // map can give it its own distinct red highlight
+          // (CorridorMap.jsx) instead of blending into whatever
+          // department color it happens to carry.
           if (e.is_emergency) sec.is_emergency = true;
         });
       }

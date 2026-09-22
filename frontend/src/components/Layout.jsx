@@ -20,9 +20,9 @@ export default function Layout() {
     NAV_ITEMS.find((item) => (item.end ? location.pathname === item.to : location.pathname.startsWith(item.to))) ||
     NAV_ITEMS[0];
 
-  // Session 39: every routed page waits here, once, before it ever
-  // mounts -- see ensureDemoBatch.js for why this lives above the
-  // Outlet rather than duplicated inside each page's own data-fetching.
+  // Every routed page waits here, once, before it ever mounts -- see
+  // ensureDemoBatch.js for why this lives above the Outlet rather than
+  // duplicated inside each page's own data-fetching.
   const [batchReady, setBatchReady] = useState(false);
   useEffect(() => {
     ensureDemoBatch().finally(() => setBatchReady(true));

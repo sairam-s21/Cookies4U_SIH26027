@@ -5,23 +5,21 @@ Express_12243_ MGR Chennai to Coimbatore - Railway Enquiry.pdf (site:
 indiarailinfo.com, a crowd-sourced railfan enquiry site -- NOT an official
 IR publication, same caveat as any secondary source; distances/station
 existence are corroborated against the official Train_details_22122017.csv
-derivation in fine_stations.py's cross-validation, see PROGRESS.md Session
-4 for the comparison results).
+derivation in fine_stations.py's cross-validation).
 
 This is the single most granular real point-list available for this
 corridor, including signal cabins and block huts alongside commercial
 halts -- these ARE real block-boundary points on the physical line, not
-noise (see PROGRESS.md Session 4 for why they're kept rather than
-filtered).
+noise.
 
-Session 16, at explicit user request: project scope reduced from the full
-MAS-CBE run to MAS-JTJ only (Chennai Central to Jolarpettai Jn) -- the
-original transcription covered all 102 points through Coimbatore Jn; this
-list is now truncated at JTJ (57 points, MAS through JTJ inclusive) to cut
-scheduling problem size (fewer sections -> fewer CP-SAT windows/variables).
-Everything originally transcribed past JTJ (Jolarpettai Chord Cabin
-onward) was simply dropped, not renumbered or otherwise altered -- the
-kept rows are a verbatim prefix of the original real transcription.
+The corridor scope is MAS-JTJ (Chennai Central to Jolarpettai Jn): the
+original transcription covered all 102 points through Coimbatore Jn, but
+this list is truncated at JTJ (57 points, MAS through JTJ inclusive) to
+keep the scheduling problem size down (fewer sections -> fewer CP-SAT
+windows/variables). Everything originally transcribed past JTJ
+(Jolarpettai Chord Cabin onward) was simply dropped, not renumbered or
+otherwise altered -- the kept rows are a verbatim prefix of the original
+real transcription.
 
 Each row: (station_code, station_name, x_o_flag, distance_km, code_source)
   - x_o_flag: "X" = crossing station with loop line, "O" = originating-type,
@@ -109,7 +107,6 @@ TRAIN_12243_STOPS: list[tuple[str, str, str, float, str]] = [
 ]
 # fmt: on
 
-# Session 16, at explicit user request: scope reduced to MAS-JTJ (see
-# module docstring) -- truncated from the original 102-point MAS-CBE
-# transcription to these 57.
+# Corridor scope is MAS-JTJ (see module docstring): truncated from the
+# original 102-point MAS-CBE transcription to these 57.
 assert len(TRAIN_12243_STOPS) == 57, f"expected 57 points, got {len(TRAIN_12243_STOPS)}"

@@ -1,12 +1,11 @@
 import api from "./client.js";
 
-// Session 39, at explicit user request, after a real reported gap: the
-// auto-load lived only in WaitingList.jsx, so a visitor landing on
-// Dashboard (the default route) first saw "0 pending" until they
-// separately visited Waiting List and triggered it there. This is the
-// single shared check every page can await BEFORE fetching its own
+// Single shared check every page can await BEFORE fetching its own
 // data, so no page -- Dashboard included -- ever reads an empty waiting
-// list a fresh session hasn't actually finished loading yet.
+// list a fresh session hasn't actually finished loading yet. Keeping
+// this in one place (rather than duplicated per page) means a visitor
+// landing on Dashboard sees the same auto-loaded batch as one landing
+// on Waiting List first.
 //
 // Cached as a module-level promise (not re-checked per call) so mounting
 // several pages during one visit -- or React StrictMode's dev-mode

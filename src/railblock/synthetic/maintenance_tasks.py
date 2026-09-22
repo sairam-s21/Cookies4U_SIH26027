@@ -19,13 +19,11 @@ DEPARTMENTS = ["Engineering", "Signalling", "Traction"]
 SOURCE_SYSTEM = {"Engineering": "TMS", "Signalling": "SMMS", "Traction": "TDMS"}
 
 DEFECT_TYPES = {
-    # Session 13: expanded from 7/6/6 to 12/12/12, per
-    # docs/defect_maintenance_reference.md -- that document's own honesty
-    # note applies here too: the new entries' splittability/impact-weight
-    # judgement calls are informed engineering estimates for this
-    # corridor's real characteristics, not sourced from an official IR
-    # document, same status as the original 19 entries' own rationale
-    # comments already had.
+    # Defect list per docs/defect_maintenance_reference.md -- that
+    # document's own honesty note applies here too: splittability/
+    # impact-weight judgement calls are informed engineering estimates
+    # for this corridor's real characteristics, not sourced from an
+    # official IR document.
     "Engineering": [
         "Rail fracture",
         "Weld defect",
@@ -70,15 +68,15 @@ DEFECT_TYPES = {
     ],
 }
 
-# Option 2 (task splitting, Session 3): whether a defect type's repair can
-# realistically be done across multiple separate shorter possessions rather
-# than needing one continuous block. True = splittable (staged/incremental
-# work: individual joints, droppers, bonds, cable sections, lamp swaps,
-# grinding passes -- each unit of work is independently completable).
-# False = a single continuous possession is a genuine safety/technical
-# requirement: interlocking cutover/testing work, traction isolation
-# procedures, or urgent structural repair that must be completed and
-# verified in one sitting before the section can be safely reopened.
+# Whether a defect type's repair can realistically be done across multiple
+# separate shorter possessions rather than needing one continuous block.
+# True = splittable (staged/incremental work: individual joints, droppers,
+# bonds, cable sections, lamp swaps, grinding passes -- each unit of work
+# is independently completable). False = a single continuous possession is
+# a genuine safety/technical requirement: interlocking cutover/testing
+# work, traction isolation procedures, or urgent structural repair that
+# must be completed and verified in one sitting before the section can be
+# safely reopened.
 SPLITTABLE = {
     # Engineering (TMS)
     "Rail fracture": False,               # urgent structural repair, weld + test in one continuous possession
@@ -123,15 +121,13 @@ SPLITTABLE = {
 
 
 def splittable_for(requester_priority: str, defect_type: str, rng=None) -> bool:
-    """Session 30, at explicit user request: every task is splittable now,
-    Critical included. Previously ~30% of Critical tasks were marked
-    non-splittable (see git history) specifically to gate a human-
-    confirmed real-train-cancellation escalation path -- now deleted,
-    since train cancellation is out of scope for this project (see
-    orchestrator.py's own Session 30 note). Critical is just a higher
-    whittle_index weight, not a reason to force a continuous possession.
-    Signature/params kept as-is (both call sites still pass them) even
-    though they're no longer used, to avoid churn at either caller."""
+    """Every task is splittable, Critical included -- train-cancellation
+    escalation (the scenario that previously required some Critical tasks
+    to stay non-splittable) is out of scope for this project. Critical
+    priority is expressed only through a higher whittle_index weight, not
+    by forcing a continuous possession. Signature/params are kept as-is
+    (both call sites still pass them) even though they're no longer used,
+    to avoid churn at either caller."""
     return True
 
 
@@ -140,81 +136,79 @@ def splittable_for(requester_priority: str, defect_type: str, rng=None) -> bool:
 PRIORITY_WEIGHTS = {"Critical": 0.15, "Moderate": 0.35, "Routine": 0.50}
 
 # ============================================================================
-# UNSOURCED ASSUMPTION -- flagged plainly here (Session 7), not deleted or
-# silently changed.
+# UNSOURCED ASSUMPTION -- flagged plainly here, not deleted or silently
+# changed.
 #
-# DUE_WINDOW_DAYS and RAISE_LOOKBACK_DAYS below were NEVER sourced from any
-# Indian Railways document, despite being referenced in earlier sessions'
-# discussion as if they were an established SLA policy. They are an internal
-# placeholder assumption only.
+# DUE_WINDOW_DAYS and RAISE_LOOKBACK_DAYS below are NOT sourced from any
+# Indian Railways document; they are an internal placeholder assumption
+# only, despite sometimes being discussed as if they were an established
+# SLA policy.
 #
-# A real, dated IR document was subsequently found: a 2024 Railway Board
-# "Rolling Block Plan guidelines" circular. It describes a STRUCTURALLY
-# DIFFERENT scheme -- a 26-week rolling block plan reviewed every 2 months,
-# with "mega blocks" (>4 hours) requiring Railway Board approval communicated
-# at least 4 weeks in advance. This does not map cleanly onto a 3-tier
+# A real, dated IR document exists: a 2024 Railway Board "Rolling Block
+# Plan guidelines" circular. It describes a STRUCTURALLY DIFFERENT scheme
+# -- a 26-week rolling block plan reviewed every 2 months, with "mega
+# blocks" (>4 hours) requiring Railway Board approval communicated at
+# least 4 weeks in advance. This does not map cleanly onto a 3-tier
 # Critical/Moderate/Routine day-window model (it's a rolling-horizon +
 # advance-notice scheme, not a per-task due-date SLA), and reconciling the
 # two remains a non-trivial redesign, not attempted here.
 #
-# Session 10 update: through Session 9, RAISE_LOOKBACK_DAYS=120 and a
-# DUE_WINDOW_DAYS lower bound as low as 3 days meant `raised_date +
-# due_offset` could land BEFORE `as_of_date` -- Session 6 measured this at
-# 60-62% of generated tasks already overdue the moment they were created, a
+# An earlier configuration used RAISE_LOOKBACK_DAYS=120 and a
+# DUE_WINDOW_DAYS lower bound as low as 3 days, which meant `raised_date +
+# due_offset` could land BEFORE `as_of_date` -- measured at 60-62% of
+# generated tasks already overdue the moment they were created, a
 # confusing default for a live demo (a task raised "just now" showing e.g.
-# 73 days overdue). At the user's explicit request, due_date is now anchored
-# to as_of_date directly (not raised_date), and every tier's lower bound is
-# >=10 days, so a freshly generated task is NEVER already overdue --
-# `pre_existing_backlog_pct` (due_date_completion.py) is 0% by construction
-# from this point on. The 60-62% figure and any KPI reference/precomputed
-# file computed under the old constants describes THAT prior configuration
-# only; it is not a claim about the current generator and must not be quoted
-# as this generator's present behaviour.
+# 73 days overdue). due_date is now anchored to as_of_date directly (not
+# raised_date), and every tier's lower bound is >=10 days, so a freshly
+# generated task is NEVER already overdue -- `pre_existing_backlog_pct`
+# (due_date_completion.py) is 0% by construction from this point on. The
+# 60-62% figure, and any KPI reference/precomputed file computed under the
+# old constants, describes THAT prior configuration only; it is not a
+# claim about the current generator and must not be quoted as this
+# generator's present behaviour.
 #
-# What remains valid: Sessions 2-9's demand-scenario comparisons made under
-# the OLD constants are still meaningful as INTERNALLY CONSISTENT comparisons
+# What remains valid: demand-scenario comparisons made under the OLD
+# constants are still meaningful as INTERNALLY CONSISTENT comparisons
 # against each other from that period (same assumption applied uniformly
-# both times) -- they were not, and should not have been, presented as
-# validated absolute real-world figures either.
+# both times) -- they were not, and should not be, presented as validated
+# absolute real-world figures either.
 # ============================================================================
 DUE_WINDOW_DAYS = {"Critical": (10, 20), "Moderate": (20, 40), "Routine": (45, 60)}
 RAISE_LOOKBACK_DAYS = 10  # raised within the last ~10 days -- flavor only, does not affect due_date below
 
-# Session 35, at explicit user request, after a real reported gap: the
-# fixed 70-task demo template pool's own raised_date/due_date are baked
-# in once, at whatever real date tasks.csv was imported on (see
+# The fixed 70-task demo template pool's own raised_date/due_date are
+# baked in once, at whatever date tasks.csv was imported on (see
 # railblock.integrations.import_tasks) -- they never move with the
 # calendar. An evaluator opening the hosted link weeks (or months) after
 # that import would click "Create demo batch of tasks" and see every
-# single task already overdue on arrival, since due_date is a fixed
-# past date by then, not a live one. `refresh_demo_batch_dates` (below)
+# single task already overdue on arrival, since due_date is a fixed past
+# date by then, not a live one. `refresh_demo_batch_dates` (below)
 # recomputes raised_date/due_date fresh at ACTIVATION time instead,
 # anchored to the real date the button was clicked -- never the
 # template's own frozen values. A FIXED seed, applied in the templates'
 # own stable order (store.template_tasks() is always ORDER BY
 # inserted_at ASC), means the same 70 tasks get the same relative
-# raised/due offsets every time, regardless of which real calendar date
+# raised/due offsets every time, regardless of which calendar date
 # activation happens to fall on -- "the same set of tasks are generated
-# each time," just anchored to a different real "today."
+# each time," just anchored to a different "today."
 #
 # raised_date is never AFTER the click date (a freshly-raised task
 # reported in the future makes no sense) -- at most
 # REACTIVATION_RAISE_LOOKBACK_DAYS days before it. due_date is
 # REACTIVATION_DUE_WINDOW_DAYS[priority] days after THAT raised_date, not
-# after the click date -- narrower, priority-scaled sub-ranges within the
-# explicitly requested overall 10-30 day band (Critical still gets the
-# shortest window, Routine the longest, same relative ordering as
-# DUE_WINDOW_DAYS above, just rescaled to fit 10-30 instead of 10-60).
-# Because due_date can land as close as REACTIVATION_DUE_WINDOW_DAYS's
-# own lower bound (10) days after a raised_date that's already up to
-# REACTIVATION_RAISE_LOOKBACK_DAYS (5) days in the past, a handful of
-# tasks can end up scheduled past their own due_date once real corridor
-# congestion is factored in during the actual CP-SAT solve -- a normal,
-# expected scheduling outcome (explicitly accepted by the user), not a
+# after the click date -- narrower, priority-scaled sub-ranges within an
+# overall 10-30 day band (Critical still gets the shortest window,
+# Routine the longest, same relative ordering as DUE_WINDOW_DAYS above,
+# just rescaled to fit 10-30 instead of 10-60). Because due_date can land
+# as close as REACTIVATION_DUE_WINDOW_DAYS's own lower bound (10) days
+# after a raised_date that's already up to REACTIVATION_RAISE_LOOKBACK_DAYS
+# (5) days in the past, a handful of tasks can end up scheduled past
+# their own due_date once corridor congestion is factored in during the
+# actual CP-SAT solve -- a normal, expected scheduling outcome, not a
 # data bug; days_overdue itself (computed against the click date, not a
 # later "now") is always 0 at the moment of activation, matching this
-# module's own established "never already overdue" convention (see
-# Session 10 note above).
+# module's own established "never already overdue" convention (see the
+# assumption note above).
 REACTIVATION_RAISE_LOOKBACK_DAYS = 5
 REACTIVATION_DUE_WINDOW_DAYS = {"Critical": (10, 15), "Moderate": (15, 22), "Routine": (22, 30)}
 REACTIVATION_SEED = 20260917
@@ -240,20 +234,21 @@ def refresh_demo_batch_dates(templates: list[dict], as_of_date: date) -> list[di
         row["days_overdue"] = max(0, (as_of_date - due_date).days)
         out.append(row)
     return out
-# Session 13: per-defect-type (best, avg, worst) fix durations in hours.
+# Per-defect-type (best, avg, worst) fix durations in hours.
 #
-# CORRECTED after an initial version invented durations up to 72 hours
-# for severe defects (Bridge/girder deterioration, etc.) without checking
-# them against the real duration data already sitting in this project:
-# datasets/blocks_04-09-2026 (1).xlsx and block_requests_04-09-2026_to_
-# 04-09-2026.xlsx -- real Southern Railway COA block records for an
-# actual date. Their real Duration/demanded-time-range values, checked
-# directly: min 0.5h, mean ~2.2-2.3h, median 2.0h, MAX 6.0h, across both
-# files, 160 real block records combined. No real block in either file
-# exceeds 6 hours. Every value below is now capped at that real observed
-# maximum -- relative severity ordering between defect types is still an
-# informed judgement call (not sourced), but the actual NUMBERS are now
-# grounded against real evidence instead of invented independently of it.
+# An early version invented durations up to 72 hours for severe defects
+# (Bridge/girder deterioration, etc.) without checking them against real
+# duration data. Values below are instead grounded against real data
+# already in this project: datasets/blocks_04-09-2026 (1).xlsx and
+# block_requests_04-09-2026_to_04-09-2026.xlsx -- real Southern Railway
+# COA block records for an actual date. Their real Duration/demanded-
+# time-range values, checked directly: min 0.5h, mean ~2.2-2.3h, median
+# 2.0h, MAX 6.0h, across both files, 160 real block records combined. No
+# real block in either file exceeds 6 hours. Every value below is capped
+# at that observed maximum -- relative severity ordering between defect
+# types is still an informed judgement call (not sourced), but the
+# actual NUMBERS are grounded against real evidence rather than invented
+# independently of it.
 DEFECT_DURATION_HOURS = {
     # Engineering (TMS)
     "Rail fracture": (1.0, 2.5, 5.0),
@@ -296,8 +291,8 @@ DEFECT_DURATION_HOURS = {
     "Overhead mast/structure damage": (2.0, 4.0, 6.0),
 }
 
-# Session 4, grounded in the real Southern Railway disconnection/
-# reconnection procedure (SR 3.51.6 & App. XIII, ASM training guide
+# Grounded in the real Southern Railway disconnection/reconnection
+# procedure (SR 3.51.6 & App. XIII, ASM training guide
 # docs/1429770763529-Pro ASM study material.pdf p.27): "Disconnection upto
 # one hour should normally be allowed by SM depending upon trains in the
 # section... For works involving disconnection for more than one hour, a
@@ -313,15 +308,13 @@ def approval_path_for(estimated_block_hours: float) -> str:
     return "sm_direct" if estimated_block_hours <= SM_DIRECT_APPROVAL_MAX_HOURS else "joint_schedule"
 
 
-# Session 5: demand calibration against a real, citable benchmark -- Lidén,
+# Demand calibration against a real, citable benchmark -- Lidén,
 # "Coordinating maintenance windows and train traffic": 2,915 maintenance
 # tasks/year on Sweden's Ockelbo-Ljusdal line (Trafikverket budget data),
 # a 167km SINGLE-TRACK line, i.e. ~17.5 tasks/km/year. Scaled to this
-# corridor's real length (495km, train 12243's own recorded distance --
-# Session 4): ~8,640 tasks/year, ~166 tasks/week -- the STRESS_TEST
-# scenario below, reassuringly close to the ~150/week figure used ad hoc
-# in Sessions 2-4, but now grounded in a citable source rather than picked
-# arbitrarily.
+# corridor's real length (214.1km, MAS-JTJ): ~3,740 tasks/year, ~72
+# tasks/week -- the STRESS_TEST scenario below, grounded in a citable
+# source rather than picked arbitrarily.
 #
 # IMPORTANT CAVEAT, not a footnote: Lidén's own paper explicitly EXCLUDES
 # double-track lines from this volume estimate, stating double-track
@@ -339,7 +332,7 @@ def approval_path_for(estimated_block_hours: float) -> str:
 # estimate everywhere it's used (PROGRESS.md, KPI output) -- never present
 # it as authoritative.
 LIDEN_TASKS_PER_KM_PER_YEAR = 2915 / 167  # Ockelbo-Ljusdal, single-track, excludes double-track lines
-CORRIDOR_LENGTH_KM = 214.1  # MAS-JTJ (Session 16 scope reduction), train 12243's own recorded distance to JTJ (Session 4 fine model)
+CORRIDOR_LENGTH_KM = 214.1  # MAS-JTJ, train 12243's own recorded distance to JTJ
 GROUP_C_FRACTION = 0.4  # ASSUMPTION -- see caveat above, not a sourced figure
 
 DEMAND_SCENARIOS = {
@@ -360,17 +353,16 @@ def n_tasks_for_scenario(demand_scenario: str) -> int:
     return DEMAND_SCENARIOS[demand_scenario]
 
 
-# Session 13: relative real-world frequency per defect type -- routine
-# wear-and-tear defects genuinely occur far more often than rare
-# structural/catastrophic ones (a bridge deteriorating to the point of
-# needing repair is a rare event; a loose fishplate is not). Selecting
-# defect types uniformly at random (the original design) treats a
-# 72-hour-worst-case bridge repair as equally likely as a 4-hour fishplate
-# tightening, which is unrealistic and, empirically, dragged generated
-# task durations up sharply. Same documented-assumption status as
-# service_frequency.py's SERVICE_TYPE_FREQUENCY_MIX -- a reasoned
-# real-world judgement call, not a sourced frequency table (none exists
-# publicly for this corridor).
+# Relative real-world frequency per defect type -- routine wear-and-tear
+# defects genuinely occur far more often than rare structural/
+# catastrophic ones (a bridge deteriorating to the point of needing
+# repair is a rare event; a loose fishplate is not). Selecting defect
+# types uniformly at random treats a 72-hour-worst-case bridge repair as
+# equally likely as a 4-hour fishplate tightening, which is unrealistic
+# and, empirically, drags generated task durations up sharply. Same
+# documented-assumption status as service_frequency.py's
+# SERVICE_TYPE_FREQUENCY_MIX -- a reasoned real-world judgement call, not
+# a sourced frequency table (none exists publicly for this corridor).
 _COMMON, _OCCASIONAL, _RARE = 10, 4, 1
 DEFECT_FREQUENCY_WEIGHT = {
     # Engineering (TMS)

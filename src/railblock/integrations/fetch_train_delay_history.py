@@ -1,10 +1,10 @@
-"""Session 26, at explicit user request: real per-station delay history
+"""Real per-station delay history
 for the corridor's 225 confirmed-real trains (data/derived/
 pdf_confirmed_train_roster_2026.csv), sourced from etrain.info -- a
-public, no-auth-required Indian train running-history site. Chosen after
-RailRadar's real API host (api.railradar.in) was confirmed, via two
-independent HTTP clients, to reset the TLS connection from this
-environment on every attempt (Connection reset by peer during the
+public, no-auth-required Indian train running-history site. Chosen over
+RailRadar's own API host (api.railradar.in) because that host resets the
+TLS connection on every attempt from this environment (confirmed with two
+independent HTTP clients: "Connection reset by peer" during the
 handshake) while the plain https://railradar.in marketing site connects
 fine -- an environment-level block on that specific API subdomain, not a
 key/quota problem. etrain.info has no such block and needs no API key at
@@ -86,7 +86,7 @@ def _build_number_to_url(sitemap_xml: str) -> dict[str, str]:
 
 
 def _extract_bracketed(html: str, marker: str) -> str | None:
-    """Session 26: these are JS array literals embedded in static HTML,
+    """These are JS array literals embedded in static HTML,
     not JSON (single quotes, `new Date(...)`, unquoted-ish bits) -- a
     hand-rolled bracket-depth scan is more robust here than a fragile
     single regex, since the arrays nest (row-of-rows) and a non-greedy
@@ -182,14 +182,14 @@ def _fetch_train_history(client: httpx.Client, url: str) -> tuple[list[dict], li
     return _parse_primary_data(primary_blob), _parse_tooltip_data(tooltip_blob)
 
 
-# Session 26: illustrative-only fallback for trains etrain.info doesn't
-# track at all (confirmed by sitemap absence, not a fetch failure) --
-# disclosed the same way this project's other synthetic data is
-# (IMPACT_WEIGHT, DEFECT_DURATION_HOURS): a reasoned placeholder, never
-# fabricated as if it were a real observation. Mean/spread are a rough,
-# named guess for a local MEMU/passenger service, not derived from any
-# real dataset -- tighten or replace outright the moment real data for
-# these two trains becomes available.
+# Illustrative-only fallback for trains etrain.info doesn't track at all
+# (confirmed by sitemap absence, not a fetch failure) -- disclosed the
+# same way this project's other synthetic data is (IMPACT_WEIGHT,
+# DEFECT_DURATION_HOURS): a reasoned placeholder, never fabricated as if
+# it were a real observation. Mean/spread are a rough, named guess for a
+# local MEMU/passenger service, not derived from any real dataset --
+# tighten or replace outright the moment real data for these two trains
+# becomes available.
 _SYNTHETIC_MEAN_DELAY_MIN = 12.0
 _SYNTHETIC_STD_DELAY_MIN = 6.0
 

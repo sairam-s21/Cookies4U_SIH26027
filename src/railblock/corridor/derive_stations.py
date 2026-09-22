@@ -1,13 +1,19 @@
 """Derive the real MAS-JTJ corridor station list from the timetable data.
 
-Session 16, at explicit user request: project scope reduced from the full
-MAS-CBE run to MAS-JTJ (Chennai Central to Jolarpettai Jn) only, to cut
-scheduling problem size -- fewer sections means fewer CP-SAT
-windows/variables and a materially faster solve. This is a scope
-reduction, not a feature change: the derivation method below is unchanged,
-only the far anchor moved from CBE to JTJ.
+The corridor covers MAS-JTJ (Chennai Central to Jolarpettai Jn) rather
+than the full MAS-CBE run, to keep the scheduling problem size down --
+fewer sections means fewer CP-SAT windows/variables and a materially
+faster solve. The derivation method below is anchor-agnostic: which
+stations get pulled in depends only on where the far anchor is set
+(FAR_ANCHOR_CODE), not on any special-casing of the corridor's length.
 
-Method (per docs/MASTER_PROMPT_SIH_26027.md Section 2 and the Session 1 brief):
+The station list is derived programmatically from real timetable data
+rather than hand-picked, so it stays correct and reproducible if the
+underlying timetable changes, and so every station in it is provably one
+a real train actually stops at on this route -- not an assumption about
+which stations "should" be on the line.
+
+Method (per docs/MASTER_PROMPT_SIH_26027.md Section 2):
 
 1. From Train_details_22122017.csv, find every train whose stop sequence
    contains both corridor anchor stations (AJJ, JTJ) as an ordered
@@ -43,13 +49,12 @@ from railblock.paths import (
 )
 
 ANCHOR_CODES = ["AJJ", "JTJ"]
-FAR_ANCHOR_CODE = "JTJ"  # Session 16: was "CBE" before the MAS-JTJ scope reduction
+FAR_ANCHOR_CODE = "JTJ"
 MAS_CODE = "MAS"
 
-# Manually verified by the user before this derivation was implemented.
-# The derivation is expected to reproduce (at least) this set -- see the
-# Session 1 test that asserts this. Session 16: trimmed to the MAS-JTJ
-# scope (first 9 of the original 19).
+# A known-correct reference set (the MAS-JTJ subset of the original
+# 19-station MAS-CBE list) that derive_corridor_stations() is expected to
+# reproduce at minimum -- used as a regression check, see the test suite.
 KNOWN_VERIFIED_9 = [
     "MAS", "AJJ", "WJR", "MCN", "KPD", "GYM", "AB", "VN", "JTJ",
 ]

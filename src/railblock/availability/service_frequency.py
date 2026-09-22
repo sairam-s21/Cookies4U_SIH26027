@@ -2,10 +2,9 @@
 train in the real timetable.
 
 `Train_details_22122017.csv` has no day-of-week/run-frequency column (see
-docs/MASTER_PROMPT_SIH_26027.md Section 5 and Session 1/2's PROGRESS.md
-notes). Session 1/2 treated every train as running literally every day,
-which Session 2 showed collapses free-window time to near zero on several
-sections (e.g. ED-TUP: 0 free minutes across an entire week).
+docs/MASTER_PROMPT_SIH_26027.md Section 5). Treating every train as
+running literally every day collapses free-window time to near zero on
+several sections (e.g. ED-TUP: 0 free minutes across an entire week).
 
 We looked for a reliable per-train frequency signal in this dataset before
 resorting to a statistical assumption. The only usable signal is the train
@@ -20,40 +19,38 @@ express services do NOT run daily (commonly cited real-world figures put
 daily-run mail/express services at roughly half of all such services, with
 the rest running 5-6 days/week or on a fixed 2-3 day/week pattern) --
 these do NOT get an explicit name marker, so name-matching alone cannot
-recover their true frequency from this dataset. Per the session's
-instruction, this is used as a DOCUMENTED STATISTICAL SUBSTITUTE, not a
-per-train fact: each train is deterministically bucketed into a service
-type from its name, then assigned a weekly running pattern by a stable
-hash of its own train number against illustrative, stated real-world
-proportions below. This is a reasonable, clearly-labelled assumption, not
-a real per-train fact recovered from data -- it is not claimed to be more
-than that anywhere downstream.
+recover their true frequency from this dataset. This is used as a
+DOCUMENTED STATISTICAL SUBSTITUTE, not a per-train fact: each train is
+deterministically bucketed into a service type from its name, then
+assigned a weekly running pattern by a stable hash of its own train
+number against illustrative, stated real-world proportions below. This is
+a reasonable, clearly-labelled assumption, not a real per-train fact
+recovered from data -- it is not claimed to be more than that anywhere
+downstream.
 
 Determinism: the same (train_no, train_name) always yields the same
 pattern (via a stable SHA-256-based hash), so the corridor's "operating
 pattern" is fixed and reproducible across runs, not re-randomized -- this
 is a documented reinterpretation of the real, frequency-less timetable,
-not a fresh synthetic scenario like Session 1's task/goods generators.
+not a synthetic scenario invented independently of it.
 
-Session 12: this assumption is now overridable, per train, by a REAL
-answer fetched from the RailRadar API and cached to
-data/derived/real_running_days.json -- see this module's
-assign_weekdays(). A train with no cached real answer still falls back to
-the assumption below exactly as before.
+This assumption is overridable, per train, by a REAL answer fetched from
+the RailRadar API and cached to data/derived/real_running_days.json --
+see this module's assign_weekdays(). A train with no cached real answer
+falls back to the assumption below.
 
-Session 13: the first attempt at fetching that confirmed answer guessed a
-bare `GET /trains/{no}` endpoint that never worked (repeated 429s even
-when the account's real remaining balance contradicted "quota exceeded",
-then a connection reset -- consistent with it not being a real endpoint,
-not a rate limit). In the meantime, a real live observation (RailRadar's
-live tracker showing 12243 genuinely running on 2026-09-06, a Sunday)
-directly falsified this module's statistical guess for that train
-(Tue/Thu/Sat only) -- MANUAL_OVERRIDE_RUNNING_DAYS below was a stop-gap
-"at least daily" correction for the two trains we had direct contrary
-evidence for, added before the real endpoint was found.
+Two trains (12243/12244, see MANUAL_OVERRIDE_RUNNING_DAYS below) needed a
+manual "at least daily" correction: a live observation (RailRadar's live
+tracker showing 12243 genuinely running on a Sunday) directly falsified
+the statistical guess for that train (which had landed on Tue/Thu/Sat
+only). This was a stop-gap fix, added before the real per-train
+running-days source was located -- an earlier attempt to fetch a
+confirmed answer via a bare `GET /trains/{no}` endpoint never worked
+(repeated 429s even when the account's remaining balance contradicted
+"quota exceeded", then a connection reset -- consistent with it not
+being a real endpoint rather than a rate limit).
 
-The real running-days field turned out to be sitting in the
-ALREADY-CONFIRMED-WORKING /live endpoint the whole time
+The real running-days field lives in RailRadar's `/live` endpoint
 (`data.train.runDays`) -- see railradar.get_train_static_profile and the
 one-time fetch script railblock.integrations.fetch_real_train_data, which
 populates real_running_days.json (checked first, taking priority over
@@ -73,8 +70,8 @@ ALL_WEEKDAYS = frozenset(range(7))  # Python date.weekday(): 0=Mon .. 6=Sun
 
 REAL_RUNNING_DAYS_JSON = DERIVED_DIR / "real_running_days.json"
 
-# See module docstring (Session 13) -- a one-point manual correction, not
-# a RailRadar-confirmed per-day answer. Checked after the real cache (a
+# See module docstring -- a one-point manual correction, not a
+# RailRadar-confirmed per-day answer. Checked after the real cache (a
 # genuinely confirmed answer, once fetched, should win) but before the
 # statistical guess.
 MANUAL_OVERRIDE_RUNNING_DAYS: dict[str, frozenset[int]] = {
@@ -122,7 +119,7 @@ def classify_service_type(train_name: str) -> str:
 
 @lru_cache(maxsize=1)
 def _load_real_running_days() -> dict[str, frozenset[int]]:
-    """Session 12: real running-days data fetched from RailRadar (see
+    """Real running-days data fetched from RailRadar (see
     railblock.integrations.fetch_real_running_days) -- a train confirmed
     here overrides the statistical assumption below entirely. Returns {}
     (falls through to the assumption for every train) if the cache file

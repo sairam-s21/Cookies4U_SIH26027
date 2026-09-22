@@ -1,7 +1,6 @@
 """REAL historical per-station delay dataset for the delay-risk
-regression (railblock.ml.train_delay_model / predict_delay), at explicit
-user request -- feeding the delay-aware buffering feature (Feature 1 of
-the 5-features change note): padding a train's occupied interval in
+regression (railblock.ml.train_delay_model / predict_delay), feeding the
+delay-aware buffering feature: padding a train's occupied interval in
 compute_availability() by a predicted delay margin, instead of trusting
 its timetabled time exactly.
 
@@ -22,14 +21,14 @@ identities. `day_of_week` is derived from each observation's date
 (0=Monday..6=Sunday, matching this project's existing convention
 elsewhere -- see service_frequency.py).
 
-Session 26 bugfix: this used to JOIN train_type from the 225-train
-roster at load time -- which silently dropped every row for any train
-not in that roster (the 318 additional corridor-touching trains
-railblock.ml.synthesize_delay_coverage adds have no roster entry), so
-none of their rows ever reached training despite being generated.
-train_type is now embedded directly in the CSV at generation time
-instead (see that module), so this just reads it -- no join, and no
-silent drops possible.
+train_type is embedded directly in the CSV at generation time (see
+railblock.ml.synthesize_delay_coverage) rather than joined in here from
+the 225-train roster: joining at load time would silently drop every row
+for a train outside that roster (the 318 additional corridor-touching
+trains synthesize_delay_coverage adds have no roster entry), so those
+rows would never reach training despite being generated. Reading the
+embedded value directly avoids that join and the silent drops it would
+cause.
 """
 
 from __future__ import annotations

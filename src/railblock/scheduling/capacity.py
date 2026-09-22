@@ -39,13 +39,12 @@ def compute_daily_window_capacity(
     >= MIN_WINDOW_MINUTES. A (section, date) with no usable gap at all
     contributes zero rows (not a zero-minute row).
 
-    `availability_cache` (optional, Session 25): pass the SAME dict given
-    to railblock.prioritization.whittle.rank_tasks for this request, so
+    `availability_cache` (optional): pass the SAME dict given to
+    railblock.prioritization.whittle.rank_tasks for this request, so
     this doesn't recompute compute_availability for every (section, date)
     pair a SECOND time when ranking already computed it moments earlier
-    for the exact same real occupancy data -- see compute_availability's
-    own docstring for the full reasoning. Omit for the old
-    always-recompute behavior.
+    for the exact same occupancy data -- see compute_availability's own
+    docstring for the full reasoning. Omit to always recompute.
     """
     rows = []
     for section_id in sections["section_id"]:

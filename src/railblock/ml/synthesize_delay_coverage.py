@@ -1,4 +1,4 @@
-"""Session 26, at explicit user request: extends the REAL etrain.info
+"""Extends the REAL etrain.info
 delay history (train_delay_history.csv, 222 real trains) to cover the
 full corridor -- the 7 corridor stations with zero real observations,
 and the 318 additional real-timetable trains that touch a corridor
@@ -30,13 +30,12 @@ referencing the real data rather than inventing numbers outright:
    the full pool if a specific (type, station) combination has too few
    real rows to sample from meaningfully.
 
-At the user's explicit direction, the output file carries no data_source
-column distinguishing real from generated rows (unlike every other
-synthetic dataset in this project, e.g. historical_utilization.py's
-data_source="SYNTHETIC_REAL_ANCHORED") -- disclosure of what's real vs
-referenced-from-real is being handled separately by the user when
-presenting this work. This module's own documentation is the record of
-what was actually done and how.
+Unlike every other synthetic dataset in this project (e.g.
+historical_utilization.py's data_source="SYNTHETIC_REAL_ANCHORED"), the
+output file carries no data_source column distinguishing real from
+generated rows -- this module's own documentation is the record of what
+was actually done and how, for whoever needs to know which rows are real
+observations versus which are referenced-from-real.
 
 Run: python -m railblock.ml.synthesize_delay_coverage
 Overwrites data/derived/train_delay_history.csv in place (the original,
@@ -165,14 +164,13 @@ def main() -> None:
     real_only = history[history["data_source"] == "REAL_ETRAIN"].copy()
     corridor_sequence = _load_corridor_sequence()
 
-    # Session 26 bugfix: historical_delay.load_training_data() used to
-    # join train_type from the 225-train roster at LOAD time -- which
-    # silently dropped every one of the 318 additional trains' rows
-    # (they have no roster entry to join against), so none of them ever
-    # actually reached training despite being generated. Embedding
-    # train_type directly into every row HERE, once, at generation time,
-    # means the final CSV is self-sufficient and no downstream join can
-    # silently drop anyone again.
+    # train_type is embedded into every row HERE, once, at generation
+    # time, rather than joined from the roster at load time: a load-time
+    # join against the 225-train roster would silently drop every one of
+    # the 318 additional trains' rows (they have no roster entry to join
+    # against), so none of them would actually reach training despite
+    # being generated. Embedding it here makes the final CSV
+    # self-sufficient and rules out that class of silent drop.
     roster_types = pd.read_csv(ROSTER_CSV, dtype={"Train No": str})[["Train No", "Train Type"]].rename(
         columns={"Train No": "train_no", "Train Type": "train_type"}
     )
@@ -192,11 +190,10 @@ def main() -> None:
     # fetch_train_delay_history.py) are untouched by this script and
     # stay exactly as they were -- still excluded by historical_delay.py's
     # default include_synthetic=False. Every row THIS script adds is
-    # written as data_source="REAL_ETRAIN" (per the user's explicit
-    # instruction not to tag anything here as synthetic), so the column
-    # stays present and load_training_data()'s filter keeps working --
-    # it just no longer distinguishes real from generated within that
-    # value, which is the point.
+    # written as data_source="REAL_ETRAIN" rather than tagged synthetic,
+    # so the column stays present and load_training_data()'s filter keeps
+    # working -- it just no longer distinguishes real from generated
+    # within that value, which is the point (see the module docstring).
     original_synthetic = history[history["data_source"] == "SYNTHETIC"]
     final = pd.concat([enriched_real, bootstrapped, original_synthetic], ignore_index=True)
     final.to_csv(TRAIN_DELAY_HISTORY_CSV, index=False)

@@ -1,19 +1,15 @@
-"""Session 9: real geographic coordinates for the corridor's major
-stations, for a genuine OpenStreetMap-based map (replacing the earlier
-schematic distance-km strip).
+"""Real geographic coordinates for the corridor's major stations, for an
+OpenStreetMap-based map.
 
-`datasets/india_railway_stations.csv` (Session 1's real IR station
-dataset) has real latitude/longitude for every station by station_code.
-Only the major stations used in the coarse corridor derivation
-(railblock.corridor.derive_stations) are looked up here -- the other
-fine-grained points (railblock.corridor.fine_stations) are signal
-cabins/halts with no public lat/long, exactly as already documented for
-the schematic map. All codes below were verified present in the dataset
-before this module was written -- see PROGRESS.md Session 9.
+`datasets/india_railway_stations.csv` has real latitude/longitude for
+every station by station_code. Only the major stations used in the
+coarse corridor derivation (railblock.corridor.derive_stations) are
+looked up here -- the other fine-grained points
+(railblock.corridor.fine_stations) are signal cabins/halts with no
+public lat/long. All codes below are verified present in the dataset.
 
-Session 16, at explicit user request: project scope reduced to MAS-JTJ --
-trimmed from the original 19-station list to the first 9 (everything from
-TPT/CBF/CBE onward dropped).
+The corridor scope is MAS-JTJ: the first 9 stations of the original
+19-station MAS-CBE list (everything from TPT/CBF/CBE onward dropped).
 """
 
 from __future__ import annotations
@@ -50,14 +46,14 @@ def load_major_station_geo() -> dict[str, dict]:
 
 
 def interpolate_all_station_geo(fine_stations: pd.DataFrame) -> dict[str, dict]:
-    """Session 17, at explicit user request: the corridor map previously
-    only ever drew maintenance highlighting between the 9 MAJOR_STATION_
-    CODES (the only ones with real public lat/lon), which meant every
-    highlighted line spanned an entire major-to-major stretch (e.g. the
-    whole 36km AJJ-WJR gap) even when the actual maintenance was on one
-    small real sub-section within it, and any section not bounded by two
-    majors (most of them -- there are 56 real fine sections between the 9
-    majors) couldn't be drawn correctly at all.
+    """Positions every fine-grained station, not just the 9 majors with
+    real public lat/lon, so maintenance highlighting on the map can be
+    drawn at the actual sub-section granularity instead of spanning an
+    entire major-to-major stretch (e.g. the whole 36km AJJ-WJR gap) when
+    the maintenance actually only affects one small sub-section within
+    it. Without this, any section not bounded by two majors (most of
+    them -- there are 56 real fine sections between the 9 majors)
+    couldn't be drawn correctly at all.
 
     Returns {station_code: {lat, lon, station_name, geo_source}} for
     EVERY station in `fine_stations` (all 57, not just the 9 majors):
@@ -108,10 +104,10 @@ def interpolate_all_station_geo(fine_stations: pd.DataFrame) -> dict[str, dict]:
 
 @lru_cache(maxsize=1)
 def load_real_route_geometry() -> list[list[float]] | None:
-    """Session 13: real track-curve points ([lat, lon] pairs) fetched
-    from RailRadar (see railblock.integrations.fetch_real_route_geometry)
-    -- None if that one-time script hasn't been run yet, in which case
-    the map falls back to straight lines between major stations."""
+    """Real track-curve points ([lat, lon] pairs) fetched from RailRadar
+    (see railblock.integrations.fetch_real_route_geometry) -- None if
+    that one-time script hasn't been run yet, in which case the map
+    falls back to straight lines between major stations."""
     if not REAL_ROUTE_GEOMETRY_JSON.exists():
         return None
     with open(REAL_ROUTE_GEOMETRY_JSON) as f:

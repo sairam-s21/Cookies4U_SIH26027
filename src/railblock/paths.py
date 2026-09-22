@@ -19,26 +19,26 @@ CORRIDOR_STATIONS_CSV = DERIVED_DIR / "corridor_stations.csv"
 BLOCK_SECTIONS_CSV = DERIVED_DIR / "block_sections.csv"
 GEO_FLAGGED_CSV = DERIVED_DIR / "geographic_cross_check_flagged.csv"
 
-# Session 13: real-train-data rebuild (see railblock.integrations.fetch_real_train_data)
+# Real-train-data rebuild (see railblock.integrations.fetch_real_train_data)
 TRAIN_FETCH_CANDIDATES_JSON = DERIVED_DIR / "train_fetch_candidates.json"
 TRAIN_FETCH_PROGRESS_JSON = DERIVED_DIR / "train_fetch_progress.json"
 REAL_TRAIN_DETAILS_CSV = DERIVED_DIR / "real_train_details_2026.csv"
 
-# Session 26: real per-station delay history (see railblock.integrations.fetch_train_delay_history)
+# Real per-station delay history (see railblock.integrations.fetch_train_delay_history)
 DELAY_HISTORY_PROGRESS_JSON = DERIVED_DIR / "delay_history_progress.json"
 TRAIN_DELAY_HISTORY_CSV = DERIVED_DIR / "train_delay_history.csv"
 TRAIN_DELAY_STATION_SUMMARY_CSV = DERIVED_DIR / "train_delay_station_summary.csv"
 
-# Session 13: live-watched task import (see railblock.integrations.import_tasks
+# Live-watched task import (see railblock.integrations.import_tasks
 # and the background watcher started in api/app.py) -- appending a row to
 # this file and saving is picked up automatically, no manual re-run needed.
 TASKS_CSV_WATCH_PATH = PROJECT_ROOT / "tasks.csv"
 TASKS_CSV_IMPORT_STATE_JSON = DERIVED_DIR / "tasks_csv_import_state.json"
 
-# Session 17, at explicit user request: a fixed, never-modified set of
-# already-granted historical blocks (some completed, some approved but
-# still running/upcoming) -- see railblock.synthetic.granted_history.
-# Not live-watched like tasks.csv -- generated once, read many times.
+# A fixed, never-modified set of already-granted historical blocks (some
+# completed, some approved but still running/upcoming) -- see
+# railblock.synthetic.granted_history. Not live-watched like tasks.csv --
+# generated once, read many times.
 GRANTED_HISTORY_XLSX = PROJECT_ROOT / "granted_blocks_history.xlsx"
 
 # Adaptive-allocation regression: synthetic, real-anchored historical

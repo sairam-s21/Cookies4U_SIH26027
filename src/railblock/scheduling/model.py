@@ -61,29 +61,26 @@ Objective (maximize):
                                                              more separate block grants than
                                                              necessary when a schedule is
                                                              otherwise tied, not a real
-                                                             disruption cost -- see Session 26
-                                                             below, it is deliberately kept
-                                                             too low to ever block a task from
-                                                             being scheduled.
+                                                             disruption cost -- deliberately
+                                                             kept too low to ever block a
+                                                             task from being scheduled (see
+                                                             below).
 
 All weight constants below are illustrative, tunable, and documented as
-such -- not fitted to any real IR cost data (none exists publicly, per
-Session 1's dataset findings).
+such -- not fitted to any real IR cost data (none exists publicly).
 
-Session 26, at explicit user request ("our goal is to schedule all the
-tasks that are coming"): WINDOW_OPEN_COST was originally 20, high enough
-that a Routine-priority task (priority_value ~12-14 at PRIORITY_VALUE_
-SCALE=10) could never justify opening its own window even in a
-completely empty section -- a real, deliberate "minimize disruption
-events" framing from the problem statement, but never something the user
-asked for at that specific weight, and in direct tension with getting
-every raised task scheduled. Dropped to 1 (priority_value is clipped to a
-minimum of 1, so even the lowest-ranked task now breaks even opening its
-own window rather than losing outright) -- COORDINATION_BONUS is
+WINDOW_OPEN_COST is kept low (1) rather than the higher value a pure
+"minimize disruption events" framing of the problem statement would
+suggest: at a high enough cost, a Routine-priority task (priority_value
+~12-14 at PRIORITY_VALUE_SCALE=10) could never justify opening its own
+window even in a completely empty section, in direct tension with the
+goal of getting every raised task scheduled. Since priority_value is
+clipped to a minimum of 1, even the lowest-ranked task now breaks even
+opening its own window rather than losing outright. COORDINATION_BONUS is
 unchanged and still real money on the table, so combining departments
 into a shared window remains clearly favoured whenever it's genuinely
-possible, this just stops it being the ONLY way a low-priority task can
-ever get scheduled at all.
+possible -- this low cost just stops it being the ONLY way a low-priority
+task can ever get scheduled at all.
 """
 
 from __future__ import annotations
@@ -169,10 +166,10 @@ def solve_schedule(
     if capacity is None:
         capacity = compute_daily_window_capacity(sections, passenger_occupancy, goods_occupancy, start_date, n_days)
     if allowed_weekdays is not None:
-        # Session 9: a real, principled constraint restricting which of Layer 1's
-        # actual candidate windows are even offered to the solver (e.g. Sat/Sun
-        # only, or Mon-Fri only) -- used by generate_schedule_options() to produce
-        # genuinely different schedules, not a cosmetic filter on the output.
+        # Restricts which of Layer 1's actual candidate windows are even
+        # offered to the solver (e.g. Sat/Sun only, or Mon-Fri only) --
+        # used by generate_schedule_options() to produce genuinely
+        # different schedules, not a cosmetic filter on the output.
         capacity = capacity[
             pd.to_datetime(capacity["date"]).dt.weekday.isin(allowed_weekdays)
         ]
@@ -301,24 +298,13 @@ def solve_schedule(
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_s
     solver.parameters.num_search_workers = CPSAT_SEARCH_WORKERS
-    # Session 22, at explicit user request, after a real bug traced to
-    # this: with 8 parallel search workers and no fixed seed, CP-SAT's
-    # internal worker-race timing is genuinely nondeterministic, so
-    # identical inputs could return a DIFFERENT (equally OPTIMAL, since
-    # several distinct task selections can tie on total objective value)
-    # solution from one call to the next. This only ever bit the
-    # critical-tasks-first flow's two-call design (POST /schedule/options
-    # solves Critical tasks once to find who needs escalation; POST
-    # /schedule/escalate deliberately re-solves the SAME Critical tasks
-    # fresh rather than persisting state -- see api/app.py's
-    # _finalize_schedule docstring) -- if that second solve happened to
-    # schedule a different SET of Critical tasks than the first, a
-    # decision collected for one round's specific unscheduled task could
-    # land on a task the second round already scheduled by itself,
-    # while the second round's own (different) unscheduled task never
-    # got a decision applied to it at all. A fixed seed makes identical
-    # inputs always return the identical solution -- no scheduling
-    # QUALITY change, only reproducibility.
+    # With 8 parallel search workers and no fixed seed, CP-SAT's internal
+    # worker-race timing is genuinely nondeterministic, so identical
+    # inputs could return a DIFFERENT (equally OPTIMAL, since several
+    # distinct task selections can tie on total objective value) solution
+    # from one call to the next. A fixed seed makes identical inputs
+    # always return the identical solution -- no scheduling QUALITY
+    # change, only reproducibility.
     solver.parameters.random_seed = 42
     status = solver.Solve(model)
     status_name = solver.StatusName(status)

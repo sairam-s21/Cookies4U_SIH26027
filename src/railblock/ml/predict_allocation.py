@@ -119,15 +119,14 @@ def predict_safe_allocation(
 
 
 def predict_safe_allocation_batch(rows: pd.DataFrame) -> pd.DataFrame | None:
-    """Session 25, at explicit user request for a large scheduling-time
-    reduction: a batched version of predict_safe_allocation, for
-    apply_adaptive_allocation's real per-request loop over every ranked
-    task -- ONE call into the sklearn model instead of one per task,
-    which real profiling showed was most of that step's real cost (each
-    single-row call was rebuilding a fresh 1-row DataFrame and re-
-    entering the model's prediction pipeline from scratch, 70+ times per
-    request). Identical math to the per-row version, just vectorized --
-    not an approximation.
+    """Batched version of predict_safe_allocation, for
+    apply_adaptive_allocation's per-request loop over every ranked
+    task -- ONE call into the sklearn model instead of one per task.
+    Profiling showed the per-row version was most of that step's cost
+    (each single-row call was rebuilding a fresh 1-row DataFrame and
+    re-entering the model's prediction pipeline from scratch, 70+ times
+    per request). Identical math to the per-row version, just
+    vectorized -- not an approximation.
 
     `rows` needs real department/defect_type/requester_priority/
     estimated_block_hours columns (the same shape every caller already

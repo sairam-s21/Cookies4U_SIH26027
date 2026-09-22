@@ -1,40 +1,34 @@
 # Minimal one-click backend deployment for Render (https://render.com).
-# Session 32, at explicit user request: the frontend is hosted on Vercel;
-# this FastAPI + OR-Tools backend needs a separate host since Vercel
-# doesn't run long-lived Python services. After deploying, set the
-# Vercel project's VITE_API_BASE_URL env var to this service's real URL
-# (shown in the Render dashboard once deployed).
+# The frontend is hosted separately on Vercel; this FastAPI + OR-Tools
+# backend needs its own host since Vercel doesn't run long-lived Python
+# services. After deploying, set the Vercel project's VITE_API_BASE_URL
+# env var to this service's real URL (shown in the Render dashboard).
 #
 # CORS is already permissive (allow_origins=["*"]) in src/railblock/api/app.py,
 # so no extra config is needed for the cross-origin Vercel -> Render calls.
 #
-# Session 36, at explicit user request ("we are instructed by railway
-# authorities to not push the datasets publicly into github"): the build
-# step below first runs scripts/fetch_private_data.sh, which pulls the
-# real railway-sourced files this app needs (tasks.csv, two datasets/
-# CSVs, and a handful of data/derived/ files -- see .gitignore's own
-# Session 36 section for the exact list) from a SEPARATE PRIVATE repo,
-# never from this public one. PRIVATE_DATA_REPO/DATASETS_REPO_TOKEN below
-# must both be set in the Render dashboard after creating that private
-# repo -- see DEPLOY.md for the one-time setup. Both are `sync: false`
-# (not a plain `value:`) so Render prompts for them in the dashboard and
-# never stores either in this file, which IS committed to the public
-# repo -- a plain `value:` here would also just get re-synced from this
-# file on every deploy, silently overwriting a dashboard edit.
+# The real railway-sourced data files this app needs (tasks.csv, two
+# datasets/ CSVs, and a handful of data/derived/ files -- see .gitignore
+# for the exact list) live in a separate PRIVATE repo, never this public
+# one. The build step below runs scripts/fetch_private_data.sh to pull
+# them in. PRIVATE_DATA_REPO/DATASETS_REPO_TOKEN must both be set in the
+# Render dashboard -- see DEPLOY.md for the one-time setup. Both are
+# `sync: false` (not a plain `value:`) so Render prompts for them in the
+# dashboard and never stores either in this file, which IS committed to
+# the public repo -- a plain `value:` here would also just get re-synced
+# from this file on every deploy, silently overwriting a dashboard edit.
 #
-# Session 39, after a real reported outage on the free plan: CP-SAT's
-# defaults (8 search workers x up to 3 concurrent strategies -- see
-# config.py) are tuned for a real multi-core dev machine. Confirmed live
-# that on Render's free plan (~0.1 CPU / 512MB), a single
-# /schedule/options call starves the ENTIRE instance -- every other
-# request, including trivial ones, stalled for 100s of seconds or
-# outright failed while one solve was running. These three overrides
-# only apply to THIS deployment (local dev and any better-resourced host
-# keep the code's real defaults): 2 search workers instead of 8, the 3
+# CP-SAT's defaults (8 search workers x up to 3 concurrent strategies --
+# see config.py) are tuned for a real multi-core dev machine, which
+# Render's free plan (~0.1 CPU / 512MB) is not: a single /schedule/options
+# call there can starve the ENTIRE instance, stalling or failing every
+# other request while one solve is running. These three overrides only
+# apply to THIS deployment (local dev and any better-resourced host keep
+# the code's real defaults): 2 search workers instead of 8, the 3
 # strategies run ONE AT A TIME instead of concurrently (bounding peak
 # concurrent CPU demand, not just total wall time), and a lower 12s
-# per-strategy budget so the new sequential total (~36s worst case)
-# doesn't land far past the old concurrent one.
+# per-strategy budget so the sequential total (~36s worst case) doesn't
+# land far past the old concurrent one.
 services:
   - type: web
     name: railblock-api

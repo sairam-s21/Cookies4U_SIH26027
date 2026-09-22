@@ -11,12 +11,12 @@ import { ErrorBanner, Spinner } from "./StatusBanner.jsx";
 // demanded_block_hours, adaptive_allocation, risk_percentage } } -- the
 // REAL allocated duration from the schedule/timetable itself, not the
 // original request record (api.getRequest only ever has the original
-// demand), plus (Session 21, relabeled Session 24) the task's real risk
-// percentage -- a [0,100] percentile rank of its Whittle-index score
-// against every other task currently in the waiting list (see
-// railblock.prioritization.whittle.rank_tasks), shown as "Risk
-// percentage" when supplied. Not the raw Whittle-index itself, which has
-// no natural upper bound and so isn't meaningful shown on its own.
+// demand), plus the task's risk percentage -- a [0,100] percentile rank
+// of its Whittle-index score against every other task currently in the
+// waiting list (see railblock.prioritization.whittle.rank_tasks), shown
+// as "Risk percentage" when supplied. Not the raw Whittle-index itself,
+// which has no natural upper bound and so isn't meaningful shown on its
+// own.
 // api.getRequest never has this either since it's not stored on the
 // request row. Whichever fields a caller has are shown; whichever it
 // doesn't just don't render.
@@ -81,13 +81,10 @@ export default function BlockDetailsModal({ taskId, relatedTaskIds, scheduleInfo
               <Row k="Department" v={row.department} />
               <Row k="Defect / work type" v={row.defect_type} />
               {row.is_emergency ? (
-                // Session 30, at explicit user request, after a real
-                // reported gap: Requester priority/Raised date/Due date/
-                // Approval path are all genuinely inapplicable to an
-                // emergency (it skips the request pipeline entirely) --
-                // showing 4 blank "-" rows there wasn't "not working",
-                // just not informative. These are the facts that
-                // actually matter for one.
+                // Requester priority/Raised date/Due date/Approval path
+                // are all inapplicable to an emergency (it skips the
+                // request pipeline entirely), so its own relevant fields
+                // are shown here instead of blank rows for those.
                 <>
                   <Row k="Started" v={fmtWindowPoint(row.window_start)} />
                   <Row k="Ends" v={fmtWindowPoint(row.window_end)} />

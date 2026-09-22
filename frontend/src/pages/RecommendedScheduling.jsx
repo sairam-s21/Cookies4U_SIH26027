@@ -7,14 +7,13 @@ import BlockDetailsModal from "../components/BlockDetailsModal.jsx";
 import TrainDetailsModal from "../components/TrainDetailsModal.jsx";
 import { ErrorBanner, InfoBanner, Spinner } from "../components/StatusBanner.jsx";
 
-// Session 17/18: real local date, not toISOString()'s UTC date -- see
-// CorridorMapPage.jsx's isoLocalDateOf() for why (IST is UTC+5:30, so the
-// UTC date is a day behind for the first 5.5 hours of every IST day).
-// Session 29: this is only a SYNCHRONOUS placeholder now, since it still
-// reads the viewer's own (possibly wrong) machine clock -- the
-// useEffect below corrects it to the server's real "today" via GET
-// /now as soon as that resolves, same fix as Schedule.jsx/
-// CorridorMapPage.jsx got for the identical real reported bug.
+// Local date, not toISOString()'s UTC date -- see CorridorMapPage.jsx's
+// isoLocalDateOf() for why (IST is UTC+5:30, so the UTC date is a day
+// behind for the first 5.5 hours of every IST day). This is only a
+// synchronous placeholder, since it still reads the viewer's own
+// (possibly wrong) machine clock -- the useEffect below corrects it to
+// the server's "today" via GET /now as soon as that resolves, same
+// approach Schedule.jsx and CorridorMapPage.jsx use.
 function todayIsoLocal() {
   const d = new Date();
   const y = d.getFullYear();
@@ -24,9 +23,9 @@ function todayIsoLocal() {
 }
 const TODAY = todayIsoLocal();
 
-// Session 18: same palette/behavior as Schedule.jsx's persistent train-
-// block highlighting -- kept here too since "View full schedule" is a
-// second place a user inspects real train-passing blocks.
+// Same palette/behavior as Schedule.jsx's persistent train-block
+// highlighting -- kept here too since "View full schedule" is a second
+// place a user inspects train-passing blocks.
 const HIGHLIGHT_COLORS = [
   "#E4572E", "#17BEBB", "#FFC914", "#2E86AB", "#A23B72",
   "#8E44AD", "#27AE60", "#D81159", "#F18F01", "#0B7A75",
@@ -69,17 +68,14 @@ function buildBlocksBySection(option) {
   return bySection;
 }
 
-// Session 30, at explicit user request ("at least 90% of tasks should be
-// scheduled in the recommended scheduling"): raised from 7 to 28 (the
-// max this field already allows) -- due dates in this real, imported
-// task batch spread out over several weeks, so a narrow 7-day horizon
-// structurally can't schedule a task whose own due date is genuinely
-// weeks away, no matter how well the solver performs. Measured directly
-// against the real 70-task FILE_IMPORTED batch with this exact default
+// Default horizon is 28 days (the max this field allows), not 7 -- due
+// dates in the imported task batch spread out over several weeks, so a
+// narrow 7-day horizon structurally can't schedule a task whose due date
+// is genuinely weeks away, no matter how well the solver performs.
+// Measured against the 70-task FILE_IMPORTED batch with this default
 // (n_days=28, no time_limit_s override): 98.6% scheduled, 13/13
-// Critical -- a real algorithm/data change was never needed here, just
-// giving the solver the same real due-date horizon the tasks actually
-// have.
+// Critical -- giving the solver the due-date horizon the tasks actually
+// have, not an algorithm or data change, is what gets there.
 export default function RecommendedScheduling() {
   const [form, setForm] = useState({ start_date: TODAY, n_days: 28 });
   const [options, setOptions] = useState(null);
@@ -90,12 +86,11 @@ export default function RecommendedScheduling() {
   const [approveResult, setApproveResult] = useState(null);
   const [nothingScheduled, setNothingScheduled] = useState(false);
 
-  // Session 29, at explicit user request, after a real reported bug:
-  // TODAY (module-level, above) is the VIEWER's own machine clock --
-  // confirmed live to genuinely disagree with the server's real clock.
-  // Corrects the default start_date to the server's real "today" as
-  // soon as it's known, but only if the user hasn't already changed it
-  // away from the (possibly wrong) initial placeholder.
+  // TODAY (module-level, above) is the viewer's own machine clock, which
+  // can disagree with the server's. Corrects the default start_date to
+  // the server's "today" as soon as it's known, but only if the user
+  // hasn't already changed it away from the (possibly wrong) initial
+  // placeholder.
   useEffect(() => {
     api.now().then((n) => {
       setForm((f) => (f.start_date === TODAY ? { ...f, start_date: n.date } : f));
@@ -253,17 +248,16 @@ function OptionScheduleModal({ option, onClose }) {
   const blocks = sectionId ? bySection[sectionId] : [];
   const dates = [...new Set(blocks.map((b) => b.date))].sort();
 
-  // Session 18, at explicit user request: "View full schedule" should
-  // also show the real trains passing through each section/date, same as
-  // the Weekly/Monthly Schedule page -- previously it only showed
-  // maintenance blocks with no train context at all.
+  // "View full schedule" also shows trains passing through each
+  // section/date, same as the Weekly/Monthly Schedule page, rather than
+  // just maintenance blocks with no train context.
   useEffect(() => {
     if (!sectionId || dates.length === 0) return;
-    // Session 29 fix: see the matching comment in Schedule.jsx -- an
-    // AbortController actually cancels a superseded batch's real
-    // network requests (e.g. on rapid section switches), instead of a
-    // plain flag that only suppressed the state update while every
-    // request kept running to completion regardless.
+    // See the matching comment in Schedule.jsx -- an AbortController
+    // actually cancels a superseded batch's network requests (e.g. on
+    // rapid section switches), instead of a plain flag that only
+    // suppresses the state update while every request keeps running to
+    // completion regardless.
     const controller = new AbortController();
     Promise.all(dates.map((d) => api.sectionTrainSchedule(sectionId, d, controller.signal).catch(() => ({ trains: [] }))))
       .then((results) => {

@@ -1,16 +1,10 @@
-"""Application state for the API layer -- PostgreSQL-backed (Session 13,
-replacing Session 8's SQLite store entirely, at explicit user request).
-
-Sessions 1-7 kept this in a plain in-process dataclass (state lost on
-every restart). Session 8 swapped to SQLite so submitted requests, the
-last recommendation, and the approved schedule survive a process restart.
-Session 13 swaps the engine again, to a real PostgreSQL server (see
-railblock.config.DATABASE_URL) -- same data model, same table names, same
-public method surface; only the connection/parameter-style/upsert syntax
-changed. The corridor structure cache (`CorridorContext`) is untouched: it
-is real, expensive-to-derive, read-only, never-changing reference data,
-not mutable application state, so it stays an in-process cache exactly as
-Session 5 designed it.
+"""Application state for the API layer -- PostgreSQL-backed (see
+railblock.config.DATABASE_URL), so submitted requests, the last
+recommendation, and the approved schedule survive a process restart. The
+corridor structure cache (`CorridorContext`) is deliberately kept
+separate from this: it is real, expensive-to-derive, read-only,
+never-changing reference data, not mutable application state, so it stays
+a simple in-process cache rather than living in the database.
 
 `last_recommendation` (a `FullScheduleResult` of DataFrames) has no
 natural relational shape, so it is persisted as one JSON blob per
@@ -22,20 +16,17 @@ stored records), good enough for every existing consumer
 their code.
 
 Requires a running PostgreSQL server -- there is no in-process/embedded
-fallback (that was SQLite's whole appeal, deliberately given up here).
-Tests connect to a separate `railblock_test` database (see
+fallback. Tests connect to a separate `railblock_test` database (see
 reset_store_for_tests) so a `pytest` run never touches real demo data.
 
-Session 32, at explicit user request, after this app was about to be
-hosted publicly (Vercel frontend + a separately-hosted backend) and shared
-as a single link: EVERY mutable table below is now scoped by a
-`session_id` column, one per visitor's browser (see api/app.py's
-`get_session_id` dependency and frontend/src/api/session.js) -- without
-this, every visitor to the hosted link would see and mutate the exact same
-waiting list/approved schedule/emergencies as everyone else. A request
-with no session header at all (every pre-existing test, script, or curl
-call) is treated as one shared `DEFAULT_SESSION_ID` -- never an error, and
-fully backward compatible with anything that predates this change.
+EVERY mutable table below is scoped by a `session_id` column, one per
+visitor's browser (see api/app.py's `get_session_id` dependency and
+frontend/src/api/session.js): since this app is hosted publicly behind a
+single shared link, without per-session scoping every visitor would see
+and mutate the exact same waiting list/approved schedule/emergencies as
+everyone else. A request with no session header at all (a script or curl
+call bypassing the frontend) is treated as one shared
+`DEFAULT_SESSION_ID` rather than erroring.
 
 The one exception is `demo_task_templates`: the FIXED pool of real,
 file-imported tasks (see railblock.integrations.import_tasks) that "Create
@@ -108,14 +99,14 @@ _SCHEMA_STATEMENTS = [
         PRIMARY KEY (session_id, task_id)
     )
     """,
-    # Session 17, at explicit user request: the Waiting List must show the
-    # most-recently-submitted task first. The table has no natural
-    # insertion-order column (task_id's per-department counter doesn't
-    # give a single global order across departments), so this adds one --
-    # IF NOT EXISTS makes it a safe no-op on a fresh database and a real
-    # migration on the existing one. Never touched on conflict-update (see
-    # add_request), so an existing row's original insertion time is never
-    # bumped just because its status changed later.
+    # The Waiting List shows the most-recently-submitted task first. The
+    # table has no natural insertion-order column (task_id's per-department
+    # counter doesn't give a single global order across departments), so
+    # this adds one -- IF NOT EXISTS makes it a safe no-op on a fresh
+    # database and a real migration on an existing one. Never touched on
+    # conflict-update (see add_request), so an existing row's original
+    # insertion time is never bumped just because its status changed
+    # later.
     "ALTER TABLE requests ADD COLUMN IF NOT EXISTS inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
     """
     CREATE TABLE IF NOT EXISTS recommendations (
@@ -144,15 +135,15 @@ _SCHEMA_STATEMENTS = [
         options_json TEXT NOT NULL
     )
     """,
-    # Session 30, at explicit user request: Emergency Handling. `emergencies`
-    # holds one row per demo emergency ever created (never overwritten
-    # except to update its own status/embedded reschedule proposal) --
-    # `inserted_at` gives a stable creation order since a fresh session
-    # can create several. `emergency_reassignments` holds, per DISPLACED
-    # task_id, either its new placement or {"removed": true} (no slot
-    # found, or the human declined) -- consulted by GET /schedule/weekly
-    # and friends so a moved/removed block never keeps showing at its old,
-    # now-invalid slot. See railblock.scheduling.emergency.
+    # Emergency Handling. `emergencies` holds one row per demo emergency
+    # ever created (never overwritten except to update its own
+    # status/embedded reschedule proposal) -- `inserted_at` gives a stable
+    # creation order since a session can create several.
+    # `emergency_reassignments` holds, per DISPLACED task_id, either its
+    # new placement or {"removed": true} (no slot found, or the human
+    # declined) -- consulted by GET /schedule/weekly and friends so a
+    # moved/removed block never keeps showing at its old, now-invalid
+    # slot. See railblock.scheduling.emergency.
     """
     CREATE TABLE IF NOT EXISTS emergencies (
         session_id TEXT NOT NULL DEFAULT 'default-session',
@@ -170,8 +161,8 @@ _SCHEMA_STATEMENTS = [
         PRIMARY KEY (session_id, task_id)
     )
     """,
-    # Session 32: the shared, unscoped pool of real file-imported tasks
-    # (see railblock.integrations.import_tasks) that "Create demo batch of
+    # The shared, unscoped pool of real file-imported tasks (see
+    # railblock.integrations.import_tasks) that "Create demo batch of
     # tasks" copies from into a specific visitor's own `requests` rows --
     # see module docstring.
     """
@@ -246,10 +237,10 @@ class BlockRequestStore:
             )
 
     def delete_pending_requests(self, task_ids: list[str], session_id: str) -> int:
-        """Session 9: bulk-delete, but ONLY rows still status='pending' --
-        a demo-seeded batch the frontend is retracting on page reload
-        (see RaiseRequest.jsx) must never delete a task that has since
-        been recommended/approved."""
+        """Bulk-delete, but ONLY rows still status='pending' -- a
+        demo-seeded batch the frontend is retracting on page reload (see
+        RaiseRequest.jsx) must never delete a task that has since been
+        recommended/approved."""
         if not task_ids:
             return 0
         with self._conn.cursor() as cur:
@@ -278,10 +269,10 @@ class BlockRequestStore:
         -- otherwise it is silently frozen out of every future run the
         moment its status first changes away from 'pending'.
 
-        Session 13: 'rejected' is excluded too, same as 'approved' -- once
-        COA explicitly rejects a request, it's a real decision, not a
-        pending one; it must not keep reappearing in the Waiting List or
-        be considered by the next recommend/options run."""
+        'rejected' is excluded too, same as 'approved' -- once COA
+        explicitly rejects a request, it's a final decision, not a pending
+        one; it must not keep reappearing in the Waiting List or be
+        considered by the next recommend/options run."""
         with self._conn.cursor() as cur:
             cur.execute(
                 "SELECT data_json FROM requests WHERE session_id = %s AND status NOT IN ('approved', 'rejected')",
@@ -291,8 +282,7 @@ class BlockRequestStore:
         return pd.DataFrame(rows)
 
     def all_requests_df(self, session_id: str) -> pd.DataFrame:
-        # Session 17: most-recently-inserted first, at explicit user
-        # request -- see inserted_at's schema comment above.
+        # Most-recently-inserted first -- see inserted_at's schema comment above.
         with self._conn.cursor() as cur:
             cur.execute(
                 "SELECT data_json FROM requests WHERE session_id = %s ORDER BY inserted_at DESC", (session_id,)
@@ -412,29 +402,27 @@ class BlockRequestStore:
     # ------------------------------------------------------------ emergency
 
     def next_emergency_id(self, session_id: str) -> str:
-        """Session 30: derived from the real `emergencies` table (not an
-        in-process itertools.count(), unlike next_request_id above) --
-        a real reported bug: an in-memory counter restarts from 1 on
-        every process restart, but `emergencies` is PostgreSQL-backed
-        and survives one, so a restart collided with an id already
-        INSERTed in a prior process run (UniqueViolation, no ON CONFLICT
-        fallback here unlike add_request's upsert).
+        """Derived from the real `emergencies` table, not an in-process
+        itertools.count() like next_request_id above: an in-memory counter
+        restarts from 1 on every process restart, but `emergencies` is
+        PostgreSQL-backed and survives one, so a restart would collide
+        with an id already INSERTed in a prior process run
+        (UniqueViolation, no ON CONFLICT fallback here unlike
+        add_request's upsert).
 
-        Session 30 fix #2, after a second real reported collision: a
-        COUNT(*)-based "next" (the first version of this fix) breaks the
-        instant any row is ever deleted (e.g. clearing stale demo/test
-        data) -- COUNT drops but the highest real id doesn't, so the
-        "next" id collides with one already taken. Reads the highest
-        REAL id that exists instead (MAX by lexicographic order, safe
-        since every id is fixed-width zero-padded -- see the row_number
-        parse below) -- correct regardless of any gaps left by deletions.
-        "each time a user clicks 'create emergency situation' it should
-        create a new emergency situation" must never collide or dedupe,
+        Reads the highest REAL id that exists (MAX by lexicographic
+        order, safe since every id is fixed-width zero-padded -- see the
+        row_number parse below), not a COUNT(*)-based "next": COUNT drops
+        the instant any row is ever deleted (e.g. clearing stale
+        demo/test data) while the highest real id doesn't, so a
+        COUNT-based scheme would collide with an id already taken. Reading
+        the max instead stays correct regardless of any gaps left by
+        deletions -- each new emergency must get a genuinely new id,
         restart or deletion or not.
 
-        Session 32: scoped per session_id -- each visitor's own
-        emergencies start fresh at EMRG-00001, since they only ever share
-        a corridor with themselves now."""
+        Scoped per session_id -- each visitor's own emergencies start
+        fresh at EMRG-00001, since they only ever share a corridor with
+        themselves."""
         with self._conn.cursor() as cur:
             cur.execute(
                 "SELECT task_id FROM emergencies WHERE session_id = %s ORDER BY task_id DESC LIMIT 1",
@@ -491,13 +479,13 @@ class BlockRequestStore:
             return {r["task_id"]: json.loads(r["row_json"]) for r in cur.fetchall()}
 
     def reset_session_emergencies(self, session_id: str) -> None:
-        """Emergency Handling's own "Reset" button (Session 32, at explicit
-        user request): clears every emergency AND its reassignment
-        overrides for this one visitor. Since a reassignment is only ever
-        an override layered on top of a task's real stored data (never an
-        overwrite -- see api/app.py's _apply_reassignment_overrides_df),
-        deleting these rows alone makes a displaced task reappear at its
-        original slot with no further "undo" step needed."""
+        """Emergency Handling's own "Reset" button: clears every emergency
+        AND its reassignment overrides for this one visitor. Since a
+        reassignment is only ever an override layered on top of a task's
+        real stored data (never an overwrite -- see api/app.py's
+        _apply_reassignment_overrides_df), deleting these rows alone makes
+        a displaced task reappear at its original slot with no further
+        "undo" step needed."""
         with self._conn.cursor() as cur:
             cur.execute("DELETE FROM emergencies WHERE session_id = %s", (session_id,))
             cur.execute("DELETE FROM emergency_reassignments WHERE session_id = %s", (session_id,))
@@ -505,10 +493,10 @@ class BlockRequestStore:
     # ------------------------------------------------------- demo templates
 
     def add_template_task(self, row: dict) -> None:
-        """Session 32: the shared, unscoped pool import_tasks.py populates
-        (both the one-shot CLI import and the live tasks.csv watcher) --
-        see module docstring. Never touched by any per-visitor action;
-        only read from, by activate_demo_batch below."""
+        """The shared, unscoped pool import_tasks.py populates (both the
+        one-shot CLI import and the live tasks.csv watcher) -- see module
+        docstring. Never touched by any per-visitor action; only read
+        from, by activate_demo_batch below."""
         with self._conn.cursor() as cur:
             cur.execute(
                 """
@@ -524,22 +512,20 @@ class BlockRequestStore:
             return [json.loads(r["data_json"]) for r in cur.fetchall()]
 
     def activate_demo_batch(self, session_id: str) -> int:
-        """"Create demo batch of tasks" (Session 32, at explicit user
-        request): copies the shared template pool into THIS visitor's own
-        `requests` rows, status reset to 'pending' regardless of whatever
-        status the template itself carries. ON CONFLICT makes a repeat
-        click idempotent -- it just re-activates cleanly rather than
-        erroring or duplicating.
+        """"Create demo batch of tasks": copies the shared template pool
+        into THIS visitor's own `requests` rows, status reset to 'pending'
+        regardless of whatever status the template itself carries. ON
+        CONFLICT makes a repeat click idempotent -- it just re-activates
+        cleanly rather than erroring or duplicating.
 
-        Session 35, at explicit user request, after a real reported gap:
         raised_date/due_date are refreshed to real dates anchored to
-        TODAY (the real moment this is clicked), not the template's own
+        TODAY (the moment this is clicked), not the template's own
         frozen, CSV-import-time values -- see maintenance_tasks.
-        refresh_demo_batch_dates's own module note for why. now_ist()
-        (not a naive date.today()), same reasoning as every other real-
-        current-time read in this project: this deployment's host OS
-        clock runs UTC, but every date here is implicitly IST wall-clock
-        time."""
+        refresh_demo_batch_dates's own module note for why. Uses
+        now_ist(), not a naive date.today(), same reasoning as every
+        other current-time read in this project: this deployment's host
+        OS clock runs UTC, but every date here is implicitly IST
+        wall-clock time."""
         templates = self.template_tasks()
         if not templates:
             return 0
@@ -558,13 +544,13 @@ class BlockRequestStore:
         return len(templates)
 
     def reset_session_tasks(self, session_id: str) -> None:
-        """Waiting List's own "Reset" button (Session 32, at explicit user
-        request): clears this visitor's entire requests/approved/
-        recommendation/schedule-options footprint in one shot. In an
-        isolated-per-session world that footprint IS exactly "the 70
-        tasks (or whatever's left of them) plus anything scheduled from
-        them" -- there is nothing else in these four tables for this
-        session_id to have put there."""
+        """Waiting List's own "Reset" button: clears this visitor's entire
+        requests/approved/recommendation/schedule-options footprint in one
+        shot. Since every table here is scoped per session_id, that
+        footprint IS exactly "the tasks in this session (or whatever's
+        left of them) plus anything scheduled from them" -- there is
+        nothing else in these four tables for this session_id to have put
+        there."""
         with self._conn.cursor() as cur:
             cur.execute("DELETE FROM requests WHERE session_id = %s", (session_id,))
             cur.execute("DELETE FROM approved WHERE session_id = %s", (session_id,))
@@ -596,9 +582,9 @@ def get_store() -> BlockRequestStore:
 
 def _test_database_url() -> str:
     """Same server/credentials as DATABASE_URL, but the `railblock_test`
-    database instead of the real one -- created alongside it during this
-    session's PostgreSQL setup, so a `pytest` run's TRUNCATEs never touch
-    real demo data."""
+    database instead of the real one -- created alongside it during
+    PostgreSQL setup, so a `pytest` run's TRUNCATEs never touch real demo
+    data."""
     return DATABASE_URL.rsplit("/", 1)[0] + "/railblock_test"
 
 

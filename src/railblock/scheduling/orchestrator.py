@@ -10,14 +10,11 @@ required priority order:
      railblock.scheduling.splitting.expand_splittable_tasks BEFORE the
      core CP-SAT solve, so splitting is tried as part of the same solve.
 
-Session 30, at explicit user request: train cancellation/rescheduling is
-out of scope for this project. The former "Option 3" last-resort pass
-(railblock.scheduling.negotiated_exceptions, since deleted) used to shift
-or cancel a real train/goods movement for a Critical task still
-unscheduled after Options 1-2 -- removed entirely, along with the
-critical-tasks-first two-solve architecture and human-confirmed
-escalation (railblock.scheduling.critical_task_escalation, also deleted)
-that existed to support it. Critical is now just a higher whittle_index
+Train cancellation/rescheduling is out of scope for this project, so
+there is no "Option 3" last-resort pass that shifts or cancels a real
+train/goods movement for a Critical task still unscheduled after Options
+1-2, and no critical-tasks-first two-solve architecture or
+human-confirmed escalation step. Critical is just a higher whittle_index
 weight (railblock.prioritization.whittle), scheduled in the exact same
 single CP-SAT solve as Moderate/Routine -- a task that doesn't fit
 whole/split simply stays unscheduled, same as any other priority tier.
@@ -42,19 +39,18 @@ from railblock.scheduling.splitting import collapse_split_results, expand_splitt
 
 
 def _collapse_window_task_ids(windows: pd.DataFrame) -> pd.DataFrame:
-    """Session 19, at explicit user request, after a real bug: `windows`
-    comes straight from the core CP-SAT solve over `expand_splittable_
-    tasks`'s EXPANDED, part-level task set (see splitting.py's
-    `_part_task_id`, "{task_id}__part{i}of{n}"), so a combined window's
-    `task_ids` list could contain a split-session id like
+    """`windows` comes straight from the core CP-SAT solve over
+    `expand_splittable_tasks`'s EXPANDED, part-level task set (see
+    splitting.py's `_part_task_id`, "{task_id}__part{i}of{n}"), so a
+    combined window's `task_ids` list can contain a split-session id like
     "TDMS-00019__part2of2" that never exists as a real request task_id --
     the frontend's combined-block details modal (GET /requests/{task_id}
-    per id) 404s on it, and reported blank details for the whole window
-    if every id in it happened to be a split session. This maps every id
-    in `task_ids` back to its real parent task_id (the part before
-    "__part") and dedupes, since a window can combine two sessions of the
-    SAME split task with a different task -- that task must only be
-    counted/shown once, not twice."""
+    per id) would 404 on it, leaving blank details for the whole window if
+    every id in it happened to be a split session. This maps every id in
+    `task_ids` back to its real parent task_id (the part before "__part")
+    and dedupes, since a window can combine two sessions of the SAME split
+    task with a different task -- that task must only be counted/shown
+    once, not twice."""
     if windows.empty or "task_ids" not in windows.columns:
         return windows
     windows = windows.copy()
@@ -84,16 +80,15 @@ def prepare_forced_and_remaining(
     CP-SAT solve: identify combining candidates, expand splittable tasks
     against real window sizes, then deterministically force-place any
     combination that's genuinely feasible right now (see the inline
-    comments this was extracted from, below, for the full Session 26
-    reasoning). Depends only on `ranked_tasks` and `capacity` -- NOT on
-    any strategy-specific objective weight or `allowed_weekdays` (those
-    only affect the CP-SAT solve itself) -- so schedule_options.py's 3
-    strategies, which share the same ranked_tasks/capacity, can call this
-    ONCE and reuse the result instead of each redundantly repeating this
-    same pure-Python/pandas work. Confirmed live this redundancy was real:
-    on a CPU-constrained host, 3x this step was a large share of why
-    /schedule/options stayed slow even after CP-SAT's own per-strategy
-    concurrency was already turned down (see config.py's
+    comments below for the full reasoning). Depends only on `ranked_tasks`
+    and `capacity` -- NOT on any strategy-specific objective weight or
+    `allowed_weekdays` (those only affect the CP-SAT solve itself) -- so
+    schedule_options.py's 3 strategies, which share the same
+    ranked_tasks/capacity, can call this ONCE and reuse the result instead
+    of each redundantly repeating this same pure-Python/pandas work. This
+    redundancy is real: on a CPU-constrained host, 3x this step is a large
+    share of why /schedule/options stays slow even after CP-SAT's own
+    per-strategy concurrency is turned down (see config.py's
     SCHEDULE_OPTIONS_MAX_CONCURRENCY)."""
     combinable_pairs = find_combinable_pairs(ranked_tasks)
     combinable_partner_minutes = partner_minutes_by_task(ranked_tasks, combinable_pairs)
@@ -132,22 +127,21 @@ def solve_schedule_with_options(
     capacity) result to skip recomputing splitting/combining too."""
     if capacity is None:
         capacity = compute_daily_window_capacity(sections, passenger_occupancy, goods_occupancy, start_date, n_days)
-    # Session 26, at explicit user request: before splitting decides part
-    # sizes, identify genuine department-combining candidates -- same
-    # section, overlapping [raised_date, due_date] windows, different
-    # departments (see combining.py) -- so a split part can be aimed at a
-    # SPECIFIC real partner's duration, not just any real window.
+    # Before splitting decides part sizes, identify genuine
+    # department-combining candidates -- same section, overlapping
+    # [raised_date, due_date] windows, different departments (see
+    # combining.py) -- so a split part can be aimed at a SPECIFIC real
+    # partner's duration, not just any real window.
     #
-    # Session 26, at explicit user request, after CP-SAT's own
-    # COORDINATION_BONUS incentive repeatedly failed to actually realize a
-    # real, verified combining opportunity in production (a real but
-    # time-limited, 8-worker parallel search doesn't guarantee finding
-    # every locally obvious win across a whole horizon): deterministically
-    # pre-assign any combination that's genuinely feasible right now --
-    # same section, real shared window, each task's own hours fitting it,
-    # both within their own due dates -- before CP-SAT ever runs. What's
-    # placed here is removed from CP-SAT's pool entirely (capacity
-    # subtracted too), so it can never be silently missed OR undone.
+    # CP-SAT's own COORDINATION_BONUS incentive alone doesn't reliably
+    # realize an obvious combining opportunity: a time-limited, 8-worker
+    # parallel search doesn't guarantee finding every locally obvious win
+    # across a whole horizon. So this deterministically pre-assigns any
+    # combination that's genuinely feasible right now -- same section,
+    # real shared window, each task's own hours fitting it, both within
+    # their own due dates -- before CP-SAT ever runs. What's placed here
+    # is removed from CP-SAT's pool entirely (capacity subtracted too), so
+    # it can never be silently missed OR undone.
     if forced_and_remaining is None:
         forced_and_remaining = prepare_forced_and_remaining(ranked_tasks, capacity)
     forced_schedule, remaining_expanded, capacity_after_force = forced_and_remaining
@@ -174,11 +168,10 @@ def solve_schedule_with_options(
     )
     windows_df = _collapse_window_task_ids(core_result.windows)
     if not forced_schedule.empty:
-        # Session 26: the exact same Session 19 bug, reoccurring here --
         # forced_schedule's task_id is still the PART-level id (e.g.
-        # "TDMS-REQ-00202__part1of6"), which 404s against GET /requests
-        # and shows "No details found" in the frontend's combined-block
-        # modal. Same fix, same helper.
+        # "TDMS-REQ-00202__part1of6"), which would 404 against GET
+        # /requests and show "No details found" in the frontend's
+        # combined-block modal -- same collapsing fix as above.
         windows_df = pd.concat(
             [windows_df, _collapse_window_task_ids(combined_window_rows(forced_schedule, capacity))],
             ignore_index=True,

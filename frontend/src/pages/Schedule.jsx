@@ -7,29 +7,25 @@ import BlockDetailsModal from "../components/BlockDetailsModal.jsx";
 import TrainDetailsModal from "../components/TrainDetailsModal.jsx";
 import { ErrorBanner, InfoBanner, Spinner } from "../components/StatusBanner.jsx";
 
-// Session 17, at explicit user request: each train block a user has
-// inspected gets its own distinct color from this palette (deliberately
-// none of the department/negotiated-exception colors used elsewhere on
-// this page), assigned in order as new blocks are clicked. Resets to the
-// default grey hatch on every page reload -- this is plain in-memory
-// React state, never persisted.
+// Each train block a viewer has inspected gets its own distinct color
+// from this palette (deliberately none of the department/negotiated-
+// exception colors used elsewhere on this page), assigned in order as
+// new blocks are clicked. Resets to the default grey hatch on every page
+// reload -- this is plain in-memory React state, never persisted.
 const HIGHLIGHT_COLORS = [
   "#E4572E", "#17BEBB", "#FFC914", "#2E86AB", "#A23B72",
   "#8E44AD", "#27AE60", "#D81159", "#F18F01", "#0B7A75",
 ];
 
-// Session 33, at explicit user request, after a real reported bug: this
-// used to be `d.toISOString().slice(0, 10)` -- UTC, not local. Every Date
-// object built above (`new Date(anchorDate + "T00:00:00")`, `new
-// Date(year, month, i + 1)`) is constructed in LOCAL time, so converting
-// it back to a string via UTC silently shifts the date backward by one
-// whenever the viewer's local timezone is ahead of UTC (IST is +5:30,
-// this app's real timezone -- confirmed live: the Monthly tab's "Today"
-// button landed on August instead of September under IST, and repeated
-// Next/Previous clicks drifted further with every call since each one
-// re-parses an already-shifted string). Same fix, and the same
-// getFullYear()/getMonth()/getDate() local-getter pattern, CorridorMapPage.jsx's
-// isoLocalDateOf() already uses for the identical reason.
+// Formats a Date using its LOCAL getters (getFullYear/getMonth/getDate),
+// not `.toISOString().slice(0, 10)`, which reads UTC. Every Date object
+// built above (`new Date(anchorDate + "T00:00:00")`, `new Date(year,
+// month, i + 1)`) is constructed in local time, so converting it back to
+// a string via UTC silently shifts the date backward by one whenever the
+// viewer's timezone is ahead of UTC (IST is +5:30, this app's timezone) --
+// and since Next/Previous each re-parse an already-shifted string, the
+// drift compounds with every click. Same pattern CorridorMapPage.jsx's
+// isoLocalDateOf() uses for the identical reason.
 function isoDate(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -43,13 +39,13 @@ function isoDate(d) {
 // maintenance block that day -- an empty row is real information
 // (nothing scheduled), not something to hide.
 function buildDateRange(mode, anchorDate) {
-  // Session 29: `anchorDate` starts out null (set only once GET /now
-  // resolves, see SectionScheduleView) -- this useMemo still runs on that
-  // very first render, before the `loading` gate below has a chance to
-  // hide anything. Without this guard, `new Date(null + "T00:00:00")` is
-  // an Invalid Date -- every getter on it (getFullYear/getMonth/getDate)
+  // `anchorDate` starts out null (set only once GET /now resolves, see
+  // SectionScheduleView) -- this useMemo still runs on the very first
+  // render, before the `loading` gate below has a chance to hide
+  // anything. Without this guard, `new Date(null + "T00:00:00")` is an
+  // Invalid Date -- every getter on it (getFullYear/getMonth/getDate)
   // returns NaN, silently producing garbage "NaN-NaN-NaN" date strings
-  // instead of a real range, with no error boundary present to catch it.
+  // instead of a real range, with no error boundary to catch it.
   if (!anchorDate) return [];
   const start = new Date(anchorDate + "T00:00:00");
   if (mode === "weekly") {
@@ -65,17 +61,14 @@ function buildDateRange(mode, anchorDate) {
   return Array.from({ length: daysInMonth }, (_, i) => isoDate(new Date(year, month, i + 1)));
 }
 
-// Session 28, at explicit user request, after a real reported bug: once
-// GET /schedule/weekly started also returning the fixed granted-history
-// dataset (spans ~one month before today through the SIH evaluation
-// window, see railblock.synthetic.granted_history), the OLD "anchor to
-// the earliest date across the whole dataset" logic permanently pinned
-// both tabs to that dataset's very first week/month (mid-August) with no
-// way to reach today or any later date -- there was no navigation
-// control at all, so every date past the first 7 (weekly) or ~31
-// (monthly) days was simply unreachable. `anchorDate` is now real,
-// user-movable state, defaulting to today, with Previous/Next/Today
-// controls below to move it.
+// GET /schedule/weekly returns the fixed granted-history dataset (spans
+// ~one month before today through the SIH evaluation window, see
+// railblock.synthetic.granted_history) alongside live-approved rows, so
+// anchoring to the earliest date across the whole dataset would pin both
+// tabs to that dataset's very first week/month with no way to reach
+// today or any later date. `anchorDate` is user-movable state,
+// defaulting to today, with Previous/Next/Today controls below to move
+// it.
 function shiftAnchor(mode, anchorDate, direction) {
   const d = new Date(anchorDate + "T00:00:00");
   if (mode === "weekly") {
@@ -121,11 +114,8 @@ function SectionScheduleView({ mode }) {
   const [detailBlock, setDetailBlock] = useState(null);
   const [detailTrain, setDetailTrain] = useState(null);
   const [highlightedTrains, setHighlightedTrains] = useState({});
-  // Session 29, at explicit user request, after a real reported bug:
-  // this used to default to todayIsoLocal() (the VIEWER's own machine
-  // clock) -- confirmed live to genuinely disagree with the server's
-  // real clock (Monthly Schedule's "Today" button landed on August
-  // when the server's real "today" is September). null until GET /now
+  // Defaulting this to the viewer's own machine clock is unreliable --
+  // it can disagree with the server's clock. null until GET /now
   // resolves below; `loading` gates every render that would actually
   // use it, so there's no visible flash of a wrong date.
   const [anchorDate, setAnchorDate] = useState(null);
@@ -154,10 +144,10 @@ function SectionScheduleView({ mode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  // Session 17, at explicit user request: strict real corridor sequence
-  // order (MAS-BBQ ... KDY-JTJ), not "affected sections first" -- GET
-  // /corridor already returns sections in that order (sorted by real
-  // distance_km via sequence_order), so this is just using it as-is.
+  // Strict corridor sequence order (MAS-BBQ ... KDY-JTJ), not "affected
+  // sections first" -- GET /corridor already returns sections in that
+  // order (sorted by distance_km via sequence_order), so this just uses
+  // it as-is.
   const sectionOptions = corridor?.sections?.map((s) => s.section_id) || [];
 
   useEffect(() => {
@@ -174,16 +164,16 @@ function SectionScheduleView({ mode }) {
 
   useEffect(() => {
     if (!sectionId || dates.length === 0) return;
-    // Session 29 fix, after a real reported bug: the old `cancelled`
-    // flag only suppressed the STATE UPDATE from a stale effect run --
-    // it never actually stopped the underlying fetch()es. Clicking
-    // Next/Previous repeatedly (Monthly mode fires up to 31 requests per
-    // click, one per day in view) piled up every previous click's
-    // still-in-flight batch on top of the new one, until Chromium ran
-    // out of connections to the origin (ERR_INSUFFICIENT_RESOURCES) and
-    // every request on the page -- not just these -- started failing,
-    // making the whole UI look frozen. AbortController actually cancels
-    // the superseded batch's real network requests.
+    // A plain `cancelled` flag would only suppress the STATE UPDATE from
+    // a stale effect run -- it wouldn't stop the underlying fetch()es.
+    // Clicking Next/Previous repeatedly (Monthly mode fires up to 31
+    // requests per click, one per day in view) would pile up every
+    // previous click's still-in-flight batch on top of the new one,
+    // until Chromium ran out of connections to the origin
+    // (ERR_INSUFFICIENT_RESOURCES) and every request on the page -- not
+    // just these -- started failing, making the whole UI look frozen.
+    // AbortController actually cancels the superseded batch's network
+    // requests.
     const controller = new AbortController();
     Promise.all(dates.map((d) => api.sectionTrainSchedule(sectionId, d, controller.signal).catch(() => ({ trains: [] }))))
       .then((results) => {
@@ -203,15 +193,14 @@ function SectionScheduleView({ mode }) {
   if (!weekly || sectionOptions.length === 0)
     return <InfoBanner>No corridor data available.</InfoBanner>;
 
-  // Session 23, at explicit user request: a real bug -- this previously
-  // hardcoded combined:false and related:[e.task_id] for every block, so
-  // two departments sharing the exact same real window (window_index)
-  // always rendered as two adjacent single-department blocks instead of
-  // one shared "combined" block, and clicking either one could never
-  // show the other task sharing that window. GET /schedule/weekly's
-  // entries carry the real window_index each task was actually placed
-  // in -- group by it (per date, already segmented by section above) and
-  // treat >=2 distinct departments in the same real window as combined.
+  // GET /schedule/weekly's entries carry the window_index each task was
+  // actually placed in -- group by it (per date, already segmented by
+  // section above) and treat >=2 distinct departments sharing the same
+  // window as combined. Hardcoding combined:false here would render two
+  // departments sharing the exact same window as two adjacent single-
+  // department blocks instead of one shared "combined" block, and
+  // clicking either one would never surface the other task sharing that
+  // window.
   const days = dates.map((date) => {
     const entries = blocksByDate[date] || [];
     const byWindow = {};
@@ -229,12 +218,10 @@ function SectionScheduleView({ mode }) {
           task_id: e.task_id,
           department: e.department,
           negotiated_exception: e.negotiated_exception,
-          // Session 30, at explicit user request, after a real reported
-          // bug: this field was silently dropped here, so an emergency
-          // block rendered with its ordinary department color instead
-          // of the distinct red "emg" style HourGrid.jsx actually has
-          // for it -- `e.is_emergency` (from GET /schedule/weekly) must
-          // be carried through, not just implicitly assumed absent.
+          // `e.is_emergency` (from GET /schedule/weekly) must be carried
+          // through explicitly -- dropping it here would render an
+          // emergency block with its ordinary department color instead
+          // of the distinct red "emg" style HourGrid.jsx has for it.
           is_emergency: e.is_emergency,
           combined,
           related: combined ? sameWindow.map((x) => x.task_id) : [e.task_id],
@@ -245,13 +232,12 @@ function SectionScheduleView({ mode }) {
           adaptive_allocation: e.adaptive_allocation,
         };
       }),
-      // Session 30, at explicit user request: "no in-between trains
-      // should run" during an active emergency -- a real train's own
-      // schedule is fixed/real data this system never fabricates away,
-      // but showing it calmly passing through the SAME window as an
-      // active emergency reads as a contradiction, so it's suppressed
-      // from this display specifically for that window (the block
-      // itself, and every OTHER non-emergency block, is unaffected).
+      // A train's own schedule is fixed data this system never
+      // fabricates away, but showing it calmly passing through the same
+      // window as an active emergency reads as a contradiction, so it's
+      // suppressed from this display specifically for that window (the
+      // block itself, and every other non-emergency block, is
+      // unaffected).
       trains: (trainsByDate[date] || []).filter((t) => {
         const emergencyBlocksToday = (entries || []).filter((e) => e.is_emergency);
         return !emergencyBlocksToday.some(

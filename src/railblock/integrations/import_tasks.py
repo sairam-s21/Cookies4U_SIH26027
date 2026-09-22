@@ -1,8 +1,8 @@
-"""Session 13: batch-import block/maintenance task requests from a CSV
-file, replacing the "Raise Block Request" UI form entirely (removed at
-explicit user request -- real COA doesn't take one-at-a-time web
-submissions; departments deliver batch task lists, and this models that
-directly instead of faking a live form).
+"""Batch-import block/maintenance task requests from a CSV
+file. This replaces a one-at-a-time "Raise Block Request" web form: real
+COA departments deliver batch task lists rather than submitting requests
+individually, and this models that directly instead of faking a live
+form.
 
 Shares its validation and derived-field logic with POST /requests
 (see railblock.api.request_builder.build_request_row) so a row imported
@@ -12,13 +12,13 @@ defaulting -- except its `data_source` is honestly recorded as
 FILE_IMPORTED rather than USER_SUBMITTED, since that's what actually
 happened.
 
-Session 32, at explicit user request, after per-visitor session isolation
-was added: rows land in the SHARED, unscoped `demo_task_templates` table
-(store.add_template_task), not any particular visitor's own `requests` --
-a real task appended to tasks.csv on the server should become available
-for the NEXT "Create demo batch of tasks" click (store.activate_demo_batch),
-not silently injected into whichever browser session happens to be open
-at that moment.
+Rows land in the SHARED, unscoped `demo_task_templates` table
+(store.add_template_task) rather than any particular visitor's own
+`requests` -- each browser gets its own session-scoped view, and a task
+appended to tasks.csv on the server should become available for the
+NEXT "Create demo batch of tasks" click (store.activate_demo_batch), not
+silently injected into whichever browser session happens to be open at
+that moment.
 
 Expected CSV columns (header row required, exact names):
     department, section_id, defect_type, requester_priority,

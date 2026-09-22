@@ -26,10 +26,10 @@ async function request(path, options = {}) {
 
 export const api = {
   health: () => request("/health"),
-  // Session 29, at explicit user request, after a real reported bug:
-  // the server's own real current date -- see app.py's GET /now for why
-  // every "today" default in this frontend should come from here, not
-  // the viewer's own machine clock.
+  // The server's own current date/time, not the viewer's machine clock --
+  // every "today" default in this frontend should be derived from here
+  // (see app.py's GET /now), since a visitor's local clock can disagree
+  // with the server's.
   now: () => request("/now"),
   corridor: () => request("/corridor"),
 
@@ -40,9 +40,8 @@ export const api = {
   rejectRequest: (taskId) =>
     request(`/requests/${encodeURIComponent(taskId)}/reject`, { method: "POST" }),
 
-  // Session 32, at explicit user request: per-visitor "Create demo batch
-  // of tasks" / "Reset" on the Waiting List page -- see api/app.py's
-  // /demo/batch/* endpoints.
+  // Per-visitor "Create demo batch of tasks" / "Reset" on the Waiting
+  // List page -- see api/app.py's /demo/batch/* endpoints.
   activateDemoBatch: () => request("/demo/batch/activate", { method: "POST" }),
   resetDemoBatch: () => request("/demo/batch/reset", { method: "POST" }),
 
@@ -63,15 +62,14 @@ export const api = {
 
   trainPositions: (date, minute, live = false) =>
     request(`/trains/positions?date=${date}&minute=${minute}${live ? "&live=true" : ""}`),
-  // Session 29, at explicit user request, after a real reported bug:
   // Weekly/Monthly Schedule's Next/Previous fetches one of these per day
-  // in view (up to 31 at once in Monthly mode) -- clicking Next/Previous
-  // repeatedly without an `signal` to cancel the PREVIOUS click's
-  // still-in-flight batch let them pile up across clicks until Chromium
-  // hit ERR_INSUFFICIENT_RESOURCES (too many pending connections to one
-  // origin), which starves every other request on the page too, making
+  // in view (up to 31 at once in Monthly mode). Without a way to cancel
+  // a superseded batch, clicking Next/Previous repeatedly piles up every
+  // previous click's still-in-flight requests until Chromium hits
+  // ERR_INSUFFICIENT_RESOURCES (too many pending connections to one
+  // origin), which starves every other request on the page too and makes
   // the whole UI look frozen. `signal` (optional) lets a caller cancel
-  // this specific request via AbortController when it's superseded.
+  // this specific request via AbortController once it's superseded.
   sectionTrainSchedule: (sectionId, date, signal) =>
     request(`/corridor/sections/${encodeURIComponent(sectionId)}/trains?date=${date}`, { signal }),
 
@@ -80,8 +78,7 @@ export const api = {
   activeBlocks: () => request("/blocks/active"),
   upcomingBlocks: (limit = 5) => request(`/blocks/upcoming?limit=${limit}`),
 
-  // Session 30, at explicit user request: Emergency Handling -- see
-  // railblock.scheduling.emergency.
+  // Emergency Handling endpoints -- see railblock.scheduling.emergency.
   createEmergency: () => request("/emergency/create", { method: "POST" }),
   resolveEmergency: (taskId, apply) =>
     request(`/emergency/${encodeURIComponent(taskId)}/resolve`, {
@@ -89,8 +86,7 @@ export const api = {
       body: JSON.stringify({ apply }),
     }),
   listEmergencies: () => request("/emergency/list"),
-  // Session 32, at explicit user request: Emergency Handling's own
-  // per-visitor "Reset" button.
+  // Emergency Handling's own per-visitor "Reset" button.
   resetEmergencies: () => request("/emergency/reset", { method: "POST" }),
 };
 

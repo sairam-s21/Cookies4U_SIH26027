@@ -1,4 +1,4 @@
-"""Session 13: ONE-TIME script -- fetches train 12243's real route
+"""ONE-TIME script -- fetches train 12243's real route
 geometry from RailRadar and caches it to
 data/derived/real_route_geometry.json. Train 12243 is the same train
 whose real stop-by-stop timetable defines this project's entire

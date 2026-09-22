@@ -1,5 +1,5 @@
-"""Session 9: generates multiple genuinely different weekly schedules for
-the "Recommended Scheduling" page, instead of a single CP-SAT solve.
+"""Generates multiple genuinely different weekly schedules for the
+"Recommended Scheduling" page, instead of a single CP-SAT solve.
 
 Each option is a REAL, independent CP-SAT solve with a different, real
 parameterization already exposed by Layer 3 (railblock.scheduling.model):
@@ -83,7 +83,7 @@ def generate_schedule_options(
     goods_occupancy: pd.DataFrame,
     start_date: Date,
     n_days: int = 7,
-    time_limit_s: float = 120.0,  # Session 13: raised from 20 -- see schemas.RecommendRequest
+    time_limit_s: float = 120.0,  # see schemas.RecommendRequest for the reasoning behind this default
     capacity: pd.DataFrame | None = None,
 ) -> list[ScheduleOption]:
     """Runs at most 3 real, independent CP-SAT solves (the first 3 of
@@ -107,12 +107,12 @@ def generate_schedule_options(
     - ALL 3 strategies are solved CONCURRENTLY via a thread pool -- not
       "balanced alone, then the other two together" (an earlier version
       of this function did that, specifically to skip the other two when
-      balanced scheduled nothing at all; at explicit user request, that
-      early-exit was traded away for real wall-clock speed, since the
-      all-scheduled-nothing case is rare in practice and the sequential-
-      then-concurrent structure meant worst-case time was balanced's own
-      solve PLUS the slower of the other two, roughly double a single
-      solve's time budget instead of one). This is genuinely faster, not
+      balanced scheduled nothing at all; that early-exit is traded away
+      here for real wall-clock speed, since the all-scheduled-nothing
+      case is rare in practice and the sequential-then-concurrent
+      structure meant worst-case time was balanced's own solve PLUS the
+      slower of the other two, roughly double a single solve's time
+      budget instead of one). This is genuinely faster, not
       just concurrent bookkeeping: OR-Tools' CP-SAT `Solve()` call is
       native C++ and releases the GIL while it runs, so multiple solves
       really do execute in parallel on separate cores despite Python's
@@ -178,10 +178,10 @@ def _result_signature(result: FullScheduleResult) -> tuple:
 
 
 def _dedupe_identical_options(options: list[ScheduleOption]) -> list[ScheduleOption]:
-    """Session 18, at explicit user request: when two strategies produce
-    the exact same real schedule (nothing left to trade off given this
-    batch), showing both as separate cards is misleading -- it looks like
-    two distinct real choices when there's really only one. Keeps
+    """When two strategies produce the exact same real schedule (nothing
+    left to trade off given this batch), showing both as separate cards
+    is misleading -- it looks like two distinct real choices when
+    there's really only one. Keeps
     "balanced" when it's part of a duplicate group (it's the one every
     other strategy is described relative to); otherwise keeps whichever
     came first in strategy-priority order. Never drops an option that is
@@ -229,12 +229,12 @@ def summarize_option(option: ScheduleOption, total_tasks: int, total_critical: i
     framing, no hand-authored text. Every number here is read directly
     off the option's own real CP-SAT result.
 
-    Session 30: dropped the negotiated/real-train tracking this used to
-    carry (negotiated_count, negotiated_freight_movements,
-    negotiated_real_trains, trains_cancelled, train_schedules_changed) --
-    train cancellation/negotiation is out of scope now (railblock.
-    scheduling.negotiated_exceptions and critical_task_escalation, both
-    deleted), so none of those code paths can fire anymore."""
+    Train cancellation/negotiation is out of scope for this project
+    (railblock.scheduling.negotiated_exceptions and
+    critical_task_escalation don't exist), so this carries no
+    negotiated/real-train tracking (negotiated_count,
+    negotiated_freight_movements, negotiated_real_trains,
+    trains_cancelled, train_schedules_changed)."""
     r = option.result
     n_scheduled = len(r.schedule)
     n_critical = _n_critical_scheduled(r)

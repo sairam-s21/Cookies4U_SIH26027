@@ -1,27 +1,24 @@
-// Real OpenStreetMap-based corridor map (Session 9).
+// Real OpenStreetMap-based corridor map.
 //
-// Session 17, at explicit user request: previously only drew maintenance
-// highlighting between the 9 major stations (the only ones with real
-// public lat/lon), collapsing all 56 real fine sections onto 8 oversized
-// major-to-major lines. GET /corridor now returns an interpolated lat/lon
-// for every one of the 57 fine stations (see
-// railblock.corridor.geo.interpolate_all_station_geo), so this component
-// draws one highlight line per REAL fine section, using each section's own
-// from_code/to_code endpoints -- no bucketing, no oversized lines. Station
-// markers are only drawn for the 9 real-geo majors (the interpolated ones
-// are real block boundaries, not places worth cluttering the map with a
+// GET /corridor returns an interpolated lat/lon for every one of the 57
+// fine stations (see railblock.corridor.geo.interpolate_all_station_geo),
+// so this component draws one highlight line per fine section, using
+// each section's own from_code/to_code endpoints -- no bucketing onto
+// the 9 major stations, no oversized major-to-major lines. Station
+// markers are only drawn for the 9 real-geo majors (the interpolated
+// ones are block boundaries, not places worth cluttering the map with a
 // dot for).
 //
 // The base track line is RailRadar's real route-geometry curve for train
 // 12243 (GET /corridor's route_geometry) when available, else straight
 // lines between the 9 majors. The colored maintenance highlight overlay
 // is always a straight sub-line between its section's two endpoints
-// (real for majors, honestly-interpolated for the rest) -- exact
-// positioning along a curved base track isn't attempted.
+// (real for majors, interpolated for the rest) -- exact positioning
+// along a curved base track isn't attempted.
 //
 // A train marker's position is either a real live RailRadar position
 // (GET /trains/positions?live=true, source="live") or interpolated along
-// its segment using its section's real progress-through-section value
+// its segment using its section's progress-through-section value
 // (source="computed") -- never a fabricated position either way.
 import { useEffect, useRef } from "react";
 import L from "leaflet";
@@ -30,14 +27,11 @@ import "leaflet/dist/leaflet.css";
 const DEPT_COLORS = { Engineering: "#3B82C4", Signalling: "#8A5DAE", Traction: "#C4842F" };
 const COMBINED_COLOR = "#3457D5";
 const IDLE_COLOR = "#D0D5DD";
-// Session 34, at explicit user request, after a real reported gap: an
-// active emergency situation's section wasn't visually distinguishable
-// on the map -- it was just blended into ordinary department coloring
-// (its own department got added to the section's departments set like
-// any other task). Matches --red (index.css) and HourGrid.jsx's own
-// distinct red "emg" treatment, and takes priority over combined/
-// department coloring since an emergency is the most urgent thing
-// happening on a section.
+// An active emergency's section is colored distinctly rather than
+// blended into ordinary department coloring. Matches --red (index.css)
+// and HourGrid.jsx's own distinct red "emg" treatment, and takes
+// priority over combined/department coloring since an emergency is the
+// most urgent thing happening on a section.
 const EMERGENCY_COLOR = "#C0392B";
 
 function trainIcon() {

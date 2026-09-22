@@ -1,24 +1,25 @@
-"""Session 13: ONE-TIME script -- rebuilds real per-station schedule data
+"""ONE-TIME script -- rebuilds real per-station schedule data
 for up to 500 corridor trains from RailRadar, replacing the 2017 CSV's
 stale timing for exactly the trains this fetch confirms, and merging real
 running-days into the same real_running_days.json cache that
 service_frequency.py's assign_weekdays() already checks.
 
-Candidate list (built once, free, from local data only -- see the git
-history for how data/derived/train_fetch_candidates.json was generated):
-225 corridor trains confirmed by the Jan-2026 Southern Railway timetable-
-changes PDF the user supplied (real, current, but that PDF's own running-
-days column turned out to be a rendering artifact, not real data -- see
-that investigation), plus 275 more of the corridor's remaining trains
-picked by transit frequency (most likely to actually be seen on the map).
+Candidate list (built once, free, from local data only -- see
+data/derived/train_fetch_candidates.json): 225 corridor trains confirmed
+by the Jan-2026 Southern Railway timetable-changes PDF (real, current,
+but that PDF's own running-days column turned out to be a rendering
+artifact, not real data), plus 275 more of the corridor's remaining
+trains picked by transit frequency (most likely to actually be seen on
+the map).
 
 Each candidate costs exactly ONE RailRadar call (`/trains/{no}/live`,
 which also feeds the live-tracking feature -- see railradar.py's
 get_train_static_profile). A train's real route is checked against this
-corridor's own station codes before being trusted at all -- this is the
-same identity-validation that the train-11028 bug taught us is necessary
-(the 2017 dataset's train numbers are not guaranteed to still mean the
-same real train 9 years later). A train that fails validation is left
+corridor's own station codes before being trusted at all: the 2017
+dataset's train numbers are not guaranteed to still mean the same real
+train 9 years later (train 11028 is a confirmed example of this drift),
+so identity has to be re-validated against a live source rather than
+assumed from the number alone. A train that fails validation is left
 completely alone: no CSV row, no running-days entry, exactly its current
 2017-CSV + statistical-assumption behaviour.
 
@@ -114,9 +115,9 @@ def main() -> None:
 
     with open(TRAIN_FETCH_CANDIDATES_JSON) as f:
         candidates_data = json.load(f)
-    # Session 13: scoped down to the 225 PDF-confirmed trains only, per
-    # explicit user decision -- the 275 additional by-frequency candidates
-    # (candidates_data["extra_by_frequency"]) are deliberately excluded now.
+    # Scoped to the 225 PDF-confirmed trains only -- the 275 additional
+    # by-frequency candidates (candidates_data["extra_by_frequency"]) are
+    # deliberately excluded.
     candidates = candidates_data["pdf_matched"]
 
     stations = load_fine_corridor_stations()

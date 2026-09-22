@@ -1,8 +1,8 @@
-"""Session 4 Part B: grounding the multi-department combination mechanism
-(built Session 2/3) in the real Southern Railway disconnection/
-reconnection procedure -- SR 3.51.6 & App. XIII, Southern Railway ASM
-training guide (docs/1429770763529-Pro ASM study material.pdf, p.27-28).
-This is a labelling/documentation improvement, not new solver logic.
+"""Grounds the multi-department combination mechanism in the real
+Southern Railway disconnection/reconnection procedure -- SR 3.51.6 &
+App. XIII, Southern Railway ASM training guide (docs/1429770763529-Pro
+ASM study material.pdf, p.27-28). This is a labelling/documentation
+improvement, not new solver logic.
 
 Real procedure this cites:
   - "For works involving disconnection for more than one hour, a

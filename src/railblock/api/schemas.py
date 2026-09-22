@@ -43,14 +43,11 @@ class SeedDemoRequest(BaseModel):
 class RecommendRequest(BaseModel):
     start_date: date
     n_days: int = Field(7, ge=1, le=28)
-    # Session 13: raised 30 -> 120 at explicit user request ("remove the
-    # max solver time") -- not literally unbounded, since a live HTTP
-    # request with no time limit at all risks hanging indefinitely if
-    # CP-SAT can't prove optimality quickly, which would be worse for a
-    # live demo than a generous-but-bounded budget. 120s gives CP-SAT far
-    # more room to reach real OPTIMAL instead of being cut off at
-    # FEASIBLE (see the run-to-run variance found and explained earlier
-    # this session).
+    # Not literally unbounded: a live HTTP request with no time limit at
+    # all risks hanging indefinitely if CP-SAT can't prove optimality
+    # quickly. 120s gives CP-SAT far more room to reach real OPTIMAL
+    # instead of being cut off at FEASIBLE, at the cost of a generous but
+    # still bounded worst-case request duration.
     time_limit_s: float = Field(120.0, gt=0)
 
 
@@ -59,7 +56,7 @@ class ApproveRequest(BaseModel):
         None, description="Subset to approve; omit to approve every fully-scheduled task from the last recommendation"
     )
     option_key: str | None = Field(
-        None, description="Session 9: approve from a specific POST /schedule/options result instead of the last /schedule/recommend result"
+        None, description="Approve from a specific POST /schedule/options result instead of the last /schedule/recommend result"
     )
 
 
@@ -70,18 +67,14 @@ class DeleteRequestsRequest(BaseModel):
 class ScheduleOptionsRequest(BaseModel):
     start_date: date
     n_days: int = Field(7, ge=1, le=28)
-    # Session 14, at explicit user request: the frontend no longer
-    # exposes this as an editable field (Recommended Scheduling) -- a
-    # live 120s-per-strategy budget could run 2x that in real wall time
-    # (the "balanced" strategy solves first, then the other two run
-    # concurrently, each up to their own full budget), on top of real
+    # Not exposed as an editable field on the frontend: a per-strategy
+    # budget this large can run ~2x that in real wall time (the
+    # "balanced" strategy solves first, then the other two run
+    # concurrently, each up to their own full budget), on top of
     # non-solver overhead (ranking, splitting, the adaptive-allocation
-    # regression pass) -- which reliably ran well past what a number on
-    # screen suggested, an awkward thing to have visible live in front
-    # of judges. Lowered back down to a bound that's actually held to in
-    # practice (see the controlled before/after comparison run earlier
-    # this session, which got real, good results at 15s) -- fixed
-    # internally now, not a user-facing dial.
+    # regression pass) that reliably pushes total time well past the
+    # configured number. Fixed internally to a bound that's actually held
+    # to in practice, rather than left as a user-facing dial.
     time_limit_s: float = Field(default_factory=lambda: SCHEDULE_OPTIONS_TIME_LIMIT_S, gt=0)
 
 
@@ -92,8 +85,8 @@ class MonthlyPlanRequest(BaseModel):
 
 
 class EmergencyResolveRequest(BaseModel):
-    """Session 30, at explicit user request: applies or discards the
-    reschedule proposal POST /emergency/create already computed for one
-    emergency -- see railblock.scheduling.emergency."""
+    """Applies or discards the reschedule proposal POST /emergency/create
+    already computed for one emergency -- see
+    railblock.scheduling.emergency."""
 
     apply: bool = Field(..., description="True: apply the proposed reschedule. False: discard it (affected tasks are vacated, not moved).")

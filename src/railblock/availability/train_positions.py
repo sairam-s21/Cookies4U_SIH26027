@@ -1,5 +1,5 @@
-"""Session 9: real train positions at a given date+time, for the
-Dashboard map's moving-train marker.
+"""Real train positions at a given date+time, for the Dashboard map's
+moving-train marker.
 
 Reuses `passenger_occupancy` (railblock.availability.corridor_availability
 .build_passenger_occupancy) exactly as-is -- every row already says which
@@ -64,14 +64,14 @@ def enrich_many_with_live_status(trains: list[dict]) -> None:
         list(pool.map(enrich_with_live_status, candidates))
 
 
-# Session 13 bug fix: the project's static timetable (Train_details_
-# 22122017.csv) is from 2017. Indian Railways reassigns/renumbers train
-# numbers over the years, so a live lookup by an old train_no can return
-# a COMPLETELY different real train today (confirmed: train 11028 in our
-# 2017 dataset sits near Chennai/Arakkonam, but RailRadar's live tracker
-# reports today's 11028 as the MAS-CSMT Mumbai Express near Pune/
-# Solapur -- both correct for their own data source, just about two
-# different physical trains 9 years apart). distance_from_origin_km is
+# The project's static timetable (Train_details_22122017.csv) is from
+# 2017. Indian Railways reassigns/renumbers train numbers over the
+# years, so a live lookup by an old train_no can return a COMPLETELY
+# different real train today (confirmed: train 11028 in our 2017 dataset
+# sits near Chennai/Arakkonam, but RailRadar's live tracker reports
+# today's 11028 as the MAS-CSMT Mumbai Express near Pune/Solapur -- both
+# correct for their own data source, just about two different physical
+# trains 9 years apart). distance_from_origin_km is
 # only meaningful on this corridor's own km scale for a train whose REAL
 # route actually follows MAS-CBE end to end -- which we can only trust
 # for the one train this corridor's geometry was itself derived from
@@ -83,18 +83,19 @@ TRUSTED_LIVE_TRAIN_NOS = frozenset({"12243", "12244"})
 
 
 def enrich_with_live_status(train: dict) -> None:
-    """Session 12/13: mutates `train` in place, overlaying a real
-    RailRadar live-status lookup if one succeeds. RailRadar's live
-    endpoint has no direct lat/lon (confirmed against a real response --
-    see railradar.get_live_status's docstring); it gives a real
-    distance-from-origin km figure instead, which the CALLER (e.g.
-    Dashboard.jsx's trainMarkers) interpolates along the same real
-    major-station geography already used for schedule-computed positions
-    -- so `distance_from_origin_km`, not lat/lon, is what actually makes
-    a train "live" here. Never raises, never removes the existing
+    """Mutates `train` in place, overlaying a RailRadar live-status
+    lookup if one succeeds. RailRadar's live endpoint has no direct
+    lat/lon (confirmed against a real response -- see
+    railradar.get_live_status's docstring); it gives a distance-from-
+    origin km figure instead, which the CALLER (e.g. Dashboard.jsx's
+    trainMarkers) interpolates along the same major-station geography
+    already used for schedule-computed positions -- so
+    `distance_from_origin_km`, not lat/lon, is what actually makes a
+    train "live" here. Never raises, never removes the existing
     schedule-computed fields -- a failed/unavailable lookup leaves
     `train` exactly as it was (source stays "computed"). Only ever
-    attempted for TRUSTED_LIVE_TRAIN_NOS -- see that constant's comment."""
+    attempted for TRUSTED_LIVE_TRAIN_NOS -- see that constant's
+    comment."""
     if train["train_no"] not in TRUSTED_LIVE_TRAIN_NOS:
         return
     from railblock.integrations.railradar import get_live_status  # local import: optional dependency

@@ -2,15 +2,13 @@
 
     Availability(section, date) = Section Time (24h) - (Passenger occupancy UNION Goods occupancy)
 
-Session 26, at explicit user request (Feature 1 of the 5-features change
-note): each passenger occurrence's real occupancy now runs a bit past
-its timetabled end-minute, padded by the real delay-risk model's
-predicted margin for that train's category/section/weekday (see
-_delay_margin_minutes below) -- so a train's own real tendency to run
-late is reflected in what actually counts as "occupied" on a section,
-not just its timetabled duration. Falls back to the unmodified
-timetabled time whenever the model, or a real category for that
-specific train, isn't available -- never a hard dependency.
+Each passenger occurrence's occupancy runs a bit past its timetabled
+end-minute, padded by the delay-risk model's predicted margin for that
+train's category/section/weekday (see _delay_margin_minutes below) -- so
+a train's own tendency to run late is reflected in what actually counts
+as "occupied" on a section, not just its timetabled duration. Falls back
+to the unmodified timetabled time whenever the model, or a category for
+that specific train, isn't available -- never a hard dependency.
 
 Passenger occupancy is derived from the REAL timetable
 (Train_details_22122017.csv): for every train that stops at two or more of
@@ -21,13 +19,12 @@ intermediate corridor halt (e.g. an express that stops at WJR then KPD
 without stopping at MCN still physically occupies both the WJR-MCN and
 MCN-KPD sections while passing through).
 
-The timetable has no day-of-week/run-frequency column. Session 1/2 treated
-every train as running literally every day (a documented simplification)
-and Session 3 showed this collapses free time to near-zero on busy
-sections. Session 3's Option 1 fix: railblock.availability.service_frequency
+The timetable has no day-of-week/run-frequency column. Treating every
+train as running literally every day collapses free time to near-zero on
+busy sections, so railblock.availability.service_frequency instead
 assigns each train a realistic weekly running pattern (a documented
 statistical assumption, not a recovered per-train fact -- see that
-module's docstring), and build_passenger_occupancy now attaches a
+module's docstring), and build_passenger_occupancy attaches a
 `weekdays` column recording which days each transit leg actually applies
 to. compute_availability is weekday-aware: a transit only occupies a
 section on the dates its train actually runs.
@@ -58,15 +55,15 @@ MINUTES_PER_DAY = 24 * 60
 
 @lru_cache(maxsize=1)
 def _cached_train_type_lookup() -> dict[str, str]:
-    """Session 26, at explicit user request: loaded once per process,
-    not once per (section, date) call -- this dict covers 540 trains
-    and doesn't change mid-run, so re-reading train_delay_history.csv on
-    every single call would be pure waste (same reasoning as this
-    module's existing per-request `cache` parameter, just at process
-    scope instead of per-request scope). Returns {} if the file is
-    missing entirely (e.g. a fresh checkout that hasn't run the delay-
-    history fetch yet) -- every caller already treats "no type found"
-    as the graceful no-padding case, so an empty dict degrades safely."""
+    """Loaded once per process, not once per (section, date) call -- this
+    dict covers 540 trains and doesn't change mid-run, so re-reading
+    train_delay_history.csv on every single call would be pure waste
+    (same reasoning as this module's per-request `cache` parameter, just
+    at process scope instead of per-request scope). Returns {} if the
+    file is missing entirely (e.g. a fresh checkout that hasn't run the
+    delay-history fetch yet) -- every caller already treats "no type
+    found" as the graceful no-padding case, so an empty dict degrades
+    safely."""
     try:
         return load_train_type_lookup()
     except Exception:
@@ -74,24 +71,22 @@ def _cached_train_type_lookup() -> dict[str, str]:
 
 
 def _delay_margin_minutes(train_no, section_id: str, weekday: int) -> float:
-    """Real delay-risk padding (Feature 1 of the 5-features change
-    note), at explicit user request: instead of trusting a train's
-    timetabled end-minute exactly, pad it by the delay-risk model's
-    predicted margin for this train's real category, at this section's
-    downstream station, on this real weekday -- so a chronically-late
-    train doesn't quietly make a maintenance block's neighbour look
-    more available than it actually is.
+    """Instead of trusting a train's timetabled end-minute exactly, pads
+    it by the delay-risk model's predicted margin for this train's
+    category, at this section's downstream station, on this weekday --
+    so a chronically-late train doesn't quietly make a maintenance
+    block's neighbour look more available than it actually is.
 
     `section_id` is always the FIXED ascending-km "FROM-TO" pair (see
     build_passenger_occupancy) regardless of which direction a given
     train is actually travelling -- per-row direction isn't preserved
     in passenger_occupancy, so this uses the section's second-named
-    station as a pragmatic downstream proxy rather than the exact real
+    station as a pragmatic downstream proxy rather than the exact
     direction-aware one. A known, disclosed simplification: the delay
     model's own accuracy (R2 ~0.09, per train_delay_model.py) already
-    means this margin is a rough real signal, not a precise one, so an
+    means this margin is a rough signal, not a precise one, so an
     occasional wrong-direction station lookup is a second-order error
-    on top of a real one, not a new correctness class of its own.
+    on top of an existing one, not a new correctness class of its own.
 
     Returns 0.0 (never negative, never raises) whenever the train's
     type isn't known, the model isn't trained yet, or anything else
@@ -106,21 +101,20 @@ def _delay_margin_minutes(train_no, section_id: str, weekday: int) -> float:
 
 @lru_cache(maxsize=100_000)
 def _cached_margin_minutes(train_type: str, station_code: str, weekday: int) -> float:
-    """Session 26 perf fix, after a real measured regression: the model's
-    real input space is exactly (train_type, station_code, weekday) --
-    a small, bounded, pure-function domain (540 types x 24 corridor
-    stations x 7 days is at most ~90,000 combinations, and real usage
-    hits a small fraction of that) -- yet the un-cached version called a
-    fresh single-row sklearn .predict() (measured ~3ms) for every single
+    """The model's input space is exactly (train_type, station_code,
+    weekday) -- a small, bounded, pure-function domain (540 types x 24
+    corridor stations x 7 days is at most ~90,000 combinations, and real
+    usage hits a small fraction of that). Without this cache, a fresh
+    single-row sklearn .predict() (measured ~3ms) runs for every single
     passenger-occupancy ROW, in every _passenger_intervals() call, in
-    every compute_availability() call. The full test suite went from
-    ~3.5 minutes to 15+ minutes and still climbing before this was
-    caught. Caching at exactly this granularity (not per train_no, which
-    would miss the fact that many different real trains share the same
-    type) turns every REPEAT of a (type, station, weekday) combination
-    -- the overwhelming majority of real calls, since the same trains
-    run the same corridor sections on the same handful of weekdays over
-    and over -- into a dict lookup instead of a model call."""
+    every compute_availability() call -- enough to take the full test
+    suite from ~3.5 minutes to 15+ minutes. Caching at exactly this
+    granularity (not per train_no, which would miss the fact that many
+    different trains share the same type) turns every REPEAT of a
+    (type, station, weekday) combination -- the vast majority of calls,
+    since the same trains run the same corridor sections on the same
+    handful of weekdays over and over -- into a dict lookup instead of a
+    model call."""
     margin = predict_delay_margin(train_type, station_code, weekday)
     return margin["margin_minutes"] if margin is not None else 0.0
 
@@ -247,25 +241,24 @@ def _passenger_intervals(
     actually runs (see service_frequency.py), so this needs `the_date` to
     check each row's `weekdays` set. If passenger_occupancy has no
     `weekdays` column (e.g. hand-built test fixtures) or `the_date` is
-    omitted, every row is treated as applying every day -- the old,
-    unconditional behaviour -- so existing callers/tests are unaffected.
+    omitted, every row is treated as applying every day, so callers that
+    don't track weekdays still get sensible results.
 
     A transit that spills past midnight also blocks the start of TODAY via
     YESTERDAY's occurrence -- fold that wraparound in explicitly, checking
     yesterday's weekday (a train can run yesterday but not today, or vice
     versa; the two occurrences are independent).
 
-    Session 26, at explicit user request: each occurrence's end_minute
-    is padded by the real delay-risk model's predicted margin for that
-    train/section/weekday (see _delay_margin_minutes) BEFORE being added
-    to `intervals` -- so a chronically-late train's real lateness is
-    reflected in what counts as "occupied", not just its timetabled
-    duration. Today's occurrence and yesterday's spillover occurrence
-    get their OWN margins (different real weekdays can have genuinely
-    different real delay patterns for the same train) -- computed only
-    once `the_date` is known, since a margin needs a real weekday to
-    look up; the weekday-agnostic (`the_date is None`) path is
-    unaffected, exactly as it was before this model existed.
+    Each occurrence's end_minute is padded by the delay-risk model's
+    predicted margin for that train/section/weekday (see
+    _delay_margin_minutes) BEFORE being added to `intervals` -- so a
+    chronically-late train's lateness is reflected in what counts as
+    "occupied", not just its timetabled duration. Today's occurrence and
+    yesterday's spillover occurrence get their OWN margins (different
+    weekdays can have genuinely different delay patterns for the same
+    train) -- computed only once `the_date` is known, since a margin
+    needs a weekday to look up; the weekday-agnostic (`the_date is
+    None`) path skips margin padding entirely.
     """
     rows = passenger_occupancy[passenger_occupancy["section_id"] == section_id]
     has_weekdays = "weekdays" in passenger_occupancy.columns and the_date is not None
@@ -325,18 +318,17 @@ def compute_availability(
     1439 for overnight spillover), as produced by build_passenger_occupancy
     and railblock.synthetic.goods_forecast.generate_goods_forecast.
 
-    Session 25, at explicit user request (real profiling showed this
-    exact call, over every (section, date) pair, was being repeated up to
-    3x per single scheduling request -- once for Whittle-index ranking's
-    congestion calc, once for the critical-tasks-first Step A solve's own
-    internal capacity computation, once for Step D's -- with byte-
-    identical inputs and therefore byte-identical results every time,
-    since passenger_occupancy/goods_occupancy never change mid-request):
-    `cache` is an OPTIONAL dict the caller creates fresh per request and
-    passes to every call in that request (see api/app.py) -- purely a
-    memoization keyed on (section_id, date), never changing what's
-    computed or returned, only how many times. Omit it (the default) for
-    the exact old behavior -- always recomputed, safe for any one-off or
+    This exact call, over every (section, date) pair, can be repeated up
+    to 3x per single scheduling request -- once for Whittle-index
+    ranking's congestion calc, once for the critical-tasks-first Step A
+    solve's own internal capacity computation, once for Step D's -- with
+    byte-identical inputs and therefore byte-identical results every
+    time, since passenger_occupancy/goods_occupancy never change
+    mid-request. `cache` is an OPTIONAL dict the caller creates fresh
+    per request and passes to every call in that request (see
+    api/app.py) -- purely a memoization keyed on (section_id, date),
+    never changing what's computed or returned, only how many times.
+    Omit it (the default) to always recompute -- safe for any one-off or
     cross-request caller that can't guarantee a stable occupancy pair.
     """
     date_str = the_date.isoformat() if hasattr(the_date, "isoformat") else str(the_date)

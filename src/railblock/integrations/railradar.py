@@ -1,10 +1,10 @@
-"""Session 12: optional real-time enrichment from the RailRadar API
-(https://railradar.in/docs), added at the user's explicit request and
-using a key they provided (read from .env via railblock.config -- never
-committed, never sent to the frontend).
+"""Optional real-time enrichment from the RailRadar API
+(https://railradar.in/docs), keyed via an API key supplied through .env
+(read from railblock.config -- never committed, never sent to the
+frontend).
 
-Honesty/robustness rules, deliberately strict because this is the
-project's first real external network dependency with a real quota:
+Honesty/robustness rules, deliberately strict since this is an external
+network dependency with a real quota:
   - EVERY call is wrapped so it can never raise into a caller. Any
     failure (network error, timeout, non-200, malformed JSON, missing
     key) returns None -- callers MUST already have a real, working
@@ -13,17 +13,15 @@ project's first real external network dependency with a real quota:
   - Live status is cached in-process for LIVE_CACHE_TTL_S so rapid
     repeated UI interaction (e.g. dragging a time slider) does not
     multiply real API calls -- the free tier is 1,000 requests/month.
-  - This module was written without the ability to make a single live
-    call against the real API from the sandbox this was authored in
-    (the sandbox's network resets the TLS connection to railradar.in
-    entirely -- confirmed with curl and Python's own HTTP client, while
-    other HTTPS hosts worked fine, so this is an environment egress
-    restriction, not a key or service problem). The request format
-    below matches RailRadar's own published docs exactly; the response
-    parsing is defensive (multiple candidate field names tried) because
-    it could not be confirmed against a real response before this code
-    was written. Verify against a real response the first time this is
-    run outside that sandbox and adjust field names here if needed.
+  - Some environments block egress to railradar.in's API subdomain
+    entirely at the network level (TLS connection reset on every
+    attempt, confirmed with curl and Python's own HTTP client, while
+    other HTTPS hosts work fine) -- distinct from a key or service
+    problem. The request format below matches RailRadar's own published
+    docs; response parsing stays defensive (multiple candidate field
+    names tried per value) so it degrades gracefully rather than raising
+    if a field name shifts. Verify against a live response and adjust
+    field names here if RailRadar's schema changes.
 """
 
 from __future__ import annotations
@@ -183,7 +181,7 @@ def _iso_to_minute_of_day(iso_ts) -> float | None:
 
 
 def get_train_static_profile(train_no: str) -> dict | None:
-    """Session 13: one-time, per-train real profile for rebuilding this
+    """One-time, per-train real profile for rebuilding this
     project's train dataset from RailRadar instead of the 2017 CSV -- see
     railblock.integrations.fetch_real_train_data (the one-time script that
     calls this). Deliberately a SEPARATE, un-cached function from
@@ -191,13 +189,12 @@ def get_train_static_profile(train_no: str) -> dict | None:
     schedule) are day-invariant real facts meant to be fetched once and
     persisted, not live moment-in-time state.
 
-    An earlier attempt at real running-days data guessed a bare
-    `GET /trains/{no}` endpoint (see git history) that never once returned
-    a successful response (429 "quota exceeded" even when the account's
-    real remaining balance contradicted that, then a connection reset --
-    consistent with it not being a real endpoint at all, not a rate
-    limit). The real answer was sitting in the ALREADY-CONFIRMED-WORKING
-    /live endpoint the whole time: CONFIRMED against a real response
+    A bare `GET /trains/{no}` endpoint is NOT a valid source for running
+    days: it never returns a successful response (429 "quota exceeded"
+    even when the account's real remaining balance contradicts that, then
+    a connection reset -- consistent with it not being a real endpoint at
+    all, not a rate limit). The data instead comes from the
+    already-working /live endpoint: CONFIRMED against a real response
     (2026-09-06, train 12243) at `data.train.runDays`, a list of lowercase
     3-letter weekday abbreviations (e.g. ["mon","wed","thu","fri","sat",
     "sun"] -- 6 days, skipping Tuesday). `data.route[]` gives each real

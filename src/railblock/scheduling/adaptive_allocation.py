@@ -46,14 +46,13 @@ def apply_adaptive_allocation(ranked_tasks: pd.DataFrame) -> pd.DataFrame:
     check whether the reduced duration then fits anywhere -- that's
     decided by CP-SAT, exactly like any other task's duration.
 
-    Session 25, at explicit user request for a large scheduling-time
-    reduction: tries predict_safe_allocation_batch() first (one real
-    model call for the whole DataFrame, identical math to calling
-    predict_safe_allocation() per row -- see that function's own
-    docstring), falling back to the original row-by-row loop only if the
-    batch call itself failed (model unavailable, or any exception) --
-    this keeps the exact same graceful-degradation guarantee this module
-    already had, just without paying the per-row cost in the common case.
+    Tries predict_safe_allocation_batch() first (one model call for the
+    whole DataFrame, identical math to calling predict_safe_allocation()
+    per row -- see that function's own docstring), falling back to the
+    row-by-row loop only if the batch call itself failed (model
+    unavailable, or any exception) -- this keeps the same
+    graceful-degradation guarantee this module already had, just without
+    paying the per-row cost in the common case.
     """
     out = ranked_tasks.copy()
     # Deliberately NOT an early `if out.empty: return out` -- a 0-row (but

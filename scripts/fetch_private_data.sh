@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Session 36, at explicit user request ("we are instructed by railway
-# authorities to not push the datasets publicly into github"): pulls the
-# real railway-sourced files this app needs to run -- but must never be
-# committed to THIS public repo -- from a separate PRIVATE GitHub repo,
-# at build time. See DEPLOY.md for the one-time setup (creating the
-# private repo, pushing these files there, generating the token).
+# Pulls the real railway-sourced files this app needs to run -- which
+# must never be committed to this public repo -- from a separate
+# PRIVATE GitHub repo, at build time. See DEPLOY.md for the one-time
+# setup (creating the private repo, pushing these files there,
+# generating the token).
 #
 # Safe to run repeatedly (e.g. on every Render build) -- it always
 # re-fetches fresh rather than assuming a previous run's copy is still

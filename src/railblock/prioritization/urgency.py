@@ -11,8 +11,8 @@ task accrues urgency 2.5x faster per day overdue than a Moderate one, and
 not sourced from any real IR SLA policy (none is publicly available, per
 docs/MASTER_PROMPT_SIH_26027.md Section 5).
 
-requester_priority itself is the human BDMS judgement call from Session 1's
-task generator -- this module ranks and weighs it, it never predicts it.
+requester_priority itself is the human BDMS judgement call from the task
+generator -- this module ranks and weighs it, it never predicts it.
 """
 
 from __future__ import annotations

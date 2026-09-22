@@ -1,4 +1,4 @@
-"""FastAPI layer (Session 5, Task 3).
+"""FastAPI layer.
 
 Wraps the existing Layer 2-5 functions -- no scheduling/KPI logic lives
 here, this module only does request validation, in-memory state
@@ -6,17 +6,17 @@ management (railblock.api.store), and response shaping. See store.py's
 docstring for the synchronous-vs-cached performance judgement call.
 
 Endpoints:
-  GET    /corridor             station/section structure incl. real lat/lon (Session 9) for the 19 major stations
-  GET    /trains/positions      Session 9: real train positions at a given date+minute, from the real timetable
+  GET    /corridor             station/section structure incl. real lat/lon for the 19 major stations
+  GET    /trains/positions      real train positions at a given date+minute, from the real timetable
   POST   /requests              submit a new block request
   GET    /requests              list requests (optional ?status= filter)
   GET    /requests/{task_id}    a single request's row (fast lookup, no full-list fetch)
-  POST   /requests/{task_id}/reject  Session 13: COA rejects a request outright (not required)
-  DELETE /requests              Session 9: bulk-delete pending requests (demo-batch retraction)
+  POST   /requests/{task_id}/reject  COA rejects a request outright (not required)
+  DELETE /requests              bulk-delete pending requests (demo-batch retraction)
   POST   /demo/seed             populate pending requests from a Task 1 demand scenario
   POST   /schedule/recommend    run Layer 2/3 over all pending requests (single result)
-  GET    /schedule/recommendation  read-only peek at the last recommendation (Session 7)
-  POST   /schedule/options       Session 9: 3-5 genuinely different real schedule options
+  GET    /schedule/recommendation  read-only peek at the last recommendation
+  POST   /schedule/options       3-5 genuinely different real schedule options
   GET    /schedule/options       read-only peek at the last /schedule/options result
   POST   /schedule/approve      approve some/all of the last recommendation or a chosen option
   GET    /schedule/weekly       approved schedule, shaped as a section x date matrix
@@ -81,18 +81,17 @@ TASKS_CSV_POLL_INTERVAL_S = 2.0
 
 
 def get_session_id(x_session_id: str | None = Header(default=None, alias="X-Session-Id")) -> str:
-    """Session 32, at explicit user request: per-visitor isolation for a
-    publicly-hosted, shared-link deployment. A request with no session
-    header at all (every pre-existing test, script, or curl call) is
-    treated as one shared DEFAULT_SESSION_ID -- never an error, and fully
-    backward compatible with anything written before this change. A real
-    browser client always sends a real per-visitor UUID (see
-    frontend/src/api/session.js), so only it ever gets true isolation."""
+    """Per-visitor isolation for a publicly-hosted, shared-link
+    deployment. A request with no session header at all (a script or curl
+    call bypassing the frontend) is treated as one shared
+    DEFAULT_SESSION_ID rather than erroring. A real browser client always
+    sends a real per-visitor UUID (see frontend/src/api/session.js), so
+    only it ever gets true isolation."""
     return x_session_id or DEFAULT_SESSION_ID
 
 
 async def _watch_tasks_csv() -> None:
-    """Session 13: background poll loop, started at app startup -- see
+    """Background poll loop, started at app startup -- see
     railblock.integrations.import_tasks.check_for_new_rows for why this is
     polling (row-count based, append-only) rather than an inotify/
     filesystem-event watcher. Runs for the lifetime of the app process;
@@ -146,17 +145,16 @@ def health():
 
 @app.get("/now")
 def now():
-    """Session 29, at explicit user request, after a real reported bug:
-    the frontend's own `todayIsoLocal()` (Schedule.jsx, RecommendedScheduling.jsx,
-    CorridorMapPage.jsx) trusted the VIEWER's own machine clock for
-    "today" -- confirmed live to genuinely disagree with this server's
-    real clock (a user's Monthly Schedule "Today" button landed on
-    August when this server's own real IST "today" is September).
-    Every real-current-date UI default should come from HERE, the one
-    real, authoritative clock every other part of this system (granted-
-    history generation, live/upcoming/active classification) already
-    anchors to -- never the browser's own `new Date()`, which has no
-    reason to agree with it.
+    """The frontend's own `todayIsoLocal()` (Schedule.jsx,
+    RecommendedScheduling.jsx, CorridorMapPage.jsx) must not trust the
+    VIEWER's own machine clock for "today" -- a viewer's local clock can
+    genuinely disagree with this server's real clock (confirmed live: a
+    Monthly Schedule "Today" button landed on August when this server's
+    own real IST "today" was already September). Every real-current-date
+    UI default should come from HERE, the one real, authoritative clock
+    every other part of this system (granted-history generation,
+    live/upcoming/active classification) already anchors to -- never the
+    browser's own `new Date()`, which has no reason to agree with it.
 
     `date`: plain "YYYY-MM-DD", day granularity, for anything that only
     needs "which day is it" (Schedule.jsx/RecommendedScheduling.jsx).
@@ -174,11 +172,11 @@ def now():
 
 @app.get("/meta")
 def meta():
-    """Session 7: static form metadata (departments, defect types per
-    department, priority levels) for the "Raise Block Request" form --
-    served from the same source of truth (railblock.synthetic.
-    maintenance_tasks) the backend itself validates against, rather than
-    letting the frontend hold its own copy that could drift out of sync.
+    """Static form metadata (departments, defect types per department,
+    priority levels) for the "Raise Block Request" form -- served from
+    the same source of truth (railblock.synthetic.maintenance_tasks) the
+    backend itself validates against, rather than letting the frontend
+    hold its own copy that could drift out of sync.
     """
     return {
         "departments": DEPARTMENTS,
@@ -190,20 +188,16 @@ def meta():
 
 @app.get("/corridor")
 def corridor():
-    """Session 7: the corridor structure the frontend needs to populate a
-    section dropdown and draw the corridor map -- stations ordered by real
-    distance_km, and the fine-grained (Session 4 default, Session 16 scope
-    reduced to MAS-JTJ) block sections between them. Not previously
-    exposed; every other endpoint that needs this data loaded it via
-    get_corridor_context() internally, but nothing returned it to a
-    caller until the frontend needed to know what sections exist at all.
+    """The corridor structure the frontend needs to populate a section
+    dropdown and draw the corridor map -- stations ordered by real
+    distance_km, and the fine-grained block sections between them (scope
+    is the MAS-JTJ corridor).
 
-    Session 17, at explicit user request: every station now gets a
-    lat/lon (not just the 9 majors) -- see
+    Every station gets a lat/lon, not just the 9 major stations -- see
     railblock.corridor.geo.interpolate_all_station_geo for exactly how
     the non-major ones are positioned (real distance-fraction
     interpolation between bracketing majors, honestly tagged via
-    geo_source, not a survey position) -- this lets the map draw
+    geo_source, not a survey position). This lets the map draw
     maintenance highlighting at the real fine-section granularity instead
     of collapsing dozens of real sections onto one oversized major-to-
     major line.
@@ -220,8 +214,8 @@ def corridor():
         "stations": stations,
         "sections": _df_records(ctx.sections),
         "geo_note": (
-            "lat/lon for the 9 major stations (Session 9, real datasets/india_railway_stations.csv "
-            "coordinates) is real; every other station's lat/lon (Session 17) is interpolated between "
+            "lat/lon for the 9 major stations (real datasets/india_railway_stations.csv "
+            "coordinates) is real; every other station's lat/lon is interpolated between "
             "its bracketing major stations by real distance_km fraction, since these fine-grained "
             "signal cabins/halts have no public real lat/lon of their own -- see geo_source per station."
         ),
@@ -231,8 +225,8 @@ def corridor():
 
 @app.get("/corridor/sections/{section_id}/trains")
 def section_train_schedule(section_id: str, date_: date = Query(..., alias="date")):
-    """Session 9: every real train transiting `section_id` on `date_` (per
-    the real timetable's passenger_occupancy + its assigned weekly running
+    """Every real train transiting `section_id` on `date_` (per the real
+    timetable's passenger_occupancy + its assigned weekly running
     pattern) -- used to overlay real train-passing times on the Weekly/
     Monthly Schedule grid, even for sections/days with no maintenance
     block scheduled."""
@@ -263,14 +257,14 @@ def train_positions(
     minute: float = Query(..., ge=0, lt=1440),
     live: bool = Query(False),
 ):
-    """Session 9: real train positions at `date`/`minute` (minute-of-day,
-    0-1439), derived from the real timetable's passenger_occupancy -- see
+    """Real train positions at `date`/`minute` (minute-of-day, 0-1439),
+    derived from the real timetable's passenger_occupancy -- see
     railblock.availability.train_positions for exactly what "real" means
     here (every train's real transit times + a documented weekly-running
     assumption, never a fabricated position).
 
-    Session 12: `live=true` additionally tries a real RailRadar lookup for
-    each of these trains and, only if one succeeds, overlays its real
+    `live=true` additionally tries a real RailRadar lookup for each of
+    these trains and, only if one succeeds, overlays its real
     lat/lon/delay onto that entry (source="live") -- a train RailRadar
     doesn't have data for, or if the API/key is unavailable, keeps its
     schedule-computed entry untouched (source="computed"), never an error.
@@ -288,13 +282,13 @@ def train_positions(
 
 @app.post("/requests", response_model=BlockRequestOut)
 def submit_request(req: BlockRequestIn, session_id: str = Depends(get_session_id)):
-    """Session 13: the "Raise Block Request" UI form was removed (real
-    COA doesn't work that way -- departments deliver batch task lists, not
-    one-at-a-time web forms). This endpoint is kept for any programmatic
-    caller (tests, a future real TDMS/SMMS integration) and now shares its
+    """There is no "Raise Block Request" UI form (real COA doesn't work
+    that way -- departments deliver batch task lists, not one-at-a-time
+    web forms). This endpoint is kept for any programmatic caller (tests,
+    a future real TDMS/SMMS integration) and shares its
     validation/derivation logic with railblock.integrations.import_tasks
-    (the CSV/JSON batch importer that replaced the form) via
-    build_request_row(), so the two paths can never drift apart."""
+    (the CSV/JSON batch importer) via build_request_row(), so the two
+    paths can never drift apart."""
     try:
         row = build_request_row(req)
     except RequestValidationError as exc:
@@ -315,12 +309,11 @@ def list_requests(status: str | None = Query(None), session_id: str = Depends(ge
 
 @app.get("/requests/whittle-rank")
 def requests_whittle_rank(session_id: str = Depends(get_session_id)):
-    """Session 21, at explicit user request: every non-approved request's
-    real Whittle-index score, so the Waiting List can offer a "Whittle
-    index rank order" sort without the user needing to run a full
-    recommendation first. Session 24: the raw whittle_index is still
-    included (real, internal, unbounded), but the UI is told to show
-    `risk_percentage` instead ("Risk percentage") -- a real, bounded
+    """Every non-approved request's real Whittle-index score, so the
+    Waiting List can offer a "Whittle index rank order" sort without
+    needing to run a full recommendation first. The raw whittle_index is
+    still included (real, internal, unbounded), but the UI is told to
+    show `risk_percentage` instead ("Risk percentage") -- a real, bounded
     [0, 100] percentile rank against every other task in this same
     response, computed by rank_tasks() itself (see its docstring). Uses a
     fixed reference horizon (today, 7 days, deterministically-seeded
@@ -346,12 +339,11 @@ def _lookup_task_detail(task_id: str, session_id: str) -> dict | None:
     task's real defect_type/raised_date/due_date/days_overdue to rank and
     re-solve it, exactly the same fields this endpoint already surfaces).
 
-    Session 28, at explicit user request, after a real reported "No
-    details found" bug: a granted-history task_id (see railblock.
-    synthetic.granted_history -- the fixed, already-"approved" dataset
-    that GET /schedule/weekly, /blocks/active, and /blocks/upcoming all
-    already show) was never inserted as a real request, so it lives only
-    in that separate fixed dataset. Falls back to that dataset (never
+    A granted-history task_id (see railblock.synthetic.granted_history --
+    the fixed, already-"approved" dataset that GET /schedule/weekly,
+    /blocks/active, and /blocks/upcoming all already show) was never
+    inserted as a real request, so it lives only in that separate fixed
+    dataset, not in store.get_request. Falls back to that dataset (never
     generated/reindexed here, so still O(1)-ish in practice at this
     dataset's real size) before finally giving up (returns None)."""
     row = get_store().get_request(task_id, session_id)
@@ -373,7 +365,7 @@ def _lookup_task_detail(task_id: str, session_id: str) -> dict | None:
                 "section_id": r["section_id"],
                 "defect_type": r["defect_type"],
                 "requester_priority": r["requester_priority"],
-                # Session 29 fix: these are real, already-computed values
+                # These are real, already-computed values
                 # (railblock.synthetic.granted_history's own row-building
                 # generates them the same way any live request would) --
                 # .get() only as a defensive fallback for a stale xlsx
@@ -386,7 +378,7 @@ def _lookup_task_detail(task_id: str, session_id: str) -> dict | None:
                 "splittable": r.get("splittable"),
                 "approval_path": r.get("approval_path"),
                 "data_source": r.get("data_source", "GRANTED_HISTORY_SYNTHETIC"),
-                # Session 28: honestly "approved" -- railblock.synthetic.
+                # Honestly "approved" -- railblock.synthetic.
                 # granted_history's own docstring: "every row here already
                 # went through approval in the past" -- not fabricated,
                 # just the one real status value that's actually true for
@@ -399,10 +391,10 @@ def _lookup_task_detail(task_id: str, session_id: str) -> dict | None:
 
 
 def _apply_emergency_override(detail: dict, task_id: str, session_id: str) -> dict:
-    """Session 30: tags a task's own detail response with whether an
-    emergency displaced it -- `_lookup_task_detail`'s shape never carries
-    a real date/window (BlockDetailsModal.jsx never showed one), so
-    there's nothing else to override here."""
+    """Tags a task's own detail response with whether an emergency
+    displaced it -- `_lookup_task_detail`'s shape never carries a real
+    date/window (BlockDetailsModal.jsx never showed one), so there's
+    nothing else to override here."""
     reassignment = get_store().get_emergency_reassignments(session_id).get(task_id)
     if reassignment is None:
         return detail
@@ -419,14 +411,13 @@ def get_request(task_id: str, session_id: str = Depends(get_session_id)):
     system (GET /requests) just to find it. See _lookup_task_detail for
     where the granted-history fallback comes from.
 
-    Session 30, at explicit user request: also resolves an emergency
-    block's own task_id (see railblock.scheduling.emergency) -- an
-    emergency is never a real "request" (it skips that pipeline
-    entirely), but the Weekly/Monthly Schedule page lets a user click
-    into one expecting the same kind of details modal as any other
-    block, and applies a `emergency_reassignments` override to a normal
-    task's date/window if it was displaced and rescheduled because of
-    one."""
+    Also resolves an emergency block's own task_id (see
+    railblock.scheduling.emergency) -- an emergency is never a real
+    "request" (it skips that pipeline entirely), but the Weekly/Monthly
+    Schedule page lets a user click into one expecting the same kind of
+    details modal as any other block, and applies a
+    `emergency_reassignments` override to a normal task's date/window if
+    it was displaced and rescheduled because of one."""
     detail = _lookup_task_detail(task_id, session_id)
     if detail is not None:
         return _apply_emergency_override(detail, task_id, session_id)
@@ -450,12 +441,10 @@ def get_request(task_id: str, session_id: str = Depends(get_session_id)):
             "status": emergency["status"],
             "is_emergency": True,
             "created_at": emergency["created_at"],
-            # Session 30, at explicit user request, after a real reported
-            # gap: the details modal showed mostly "-" for an emergency
-            # (Requester priority/Raised date/Due date/Approval path are
-            # all genuinely inapplicable) -- these are the fields that
-            # actually matter for an emergency: its real window, and a
-            # one-line summary of what it displaced.
+            # Requester priority/Raised date/Due date/Approval path are
+            # all genuinely inapplicable to an emergency, so the details
+            # modal fields that actually matter here are its real window
+            # and a one-line summary of what it displaced.
             "window_start": {"date": segments[0]["date"], "minute": segments[0]["start_minute"]},
             "window_end": {"date": segments[-1]["date"], "minute": segments[-1]["end_minute"]},
             "affected_count": len(affected),
@@ -467,13 +456,12 @@ def get_request(task_id: str, session_id: str = Depends(get_session_id)):
 
 @app.post("/requests/{task_id}/reject")
 def reject_request(task_id: str, session_id: str = Depends(get_session_id)):
-    """Session 13, at explicit user request: gives COA the authority to
-    reject a block request outright (found not required), rather than the
-    only outcomes being "gets scheduled" or "sits in the Waiting List
-    forever". A rejected request is excluded from the Waiting List and
-    every future recommend/options run (see
+    """Gives COA the authority to reject a block request outright, rather
+    than the only outcomes being "gets scheduled" or "sits in the Waiting
+    List forever". A rejected request is excluded from the Waiting List
+    and every future recommend/options run (see
     store.non_approved_requests_df), same treatment as 'approved' -- a
-    real decision, not a pending one. Cannot reject a task that's already
+    final decision, not a pending one. Cannot reject a task that's already
     been approved -- that's a real, already-granted block, a different
     and much bigger decision than this endpoint is for."""
     store = get_store()
@@ -488,9 +476,9 @@ def reject_request(task_id: str, session_id: str = Depends(get_session_id)):
 
 @app.delete("/requests")
 def delete_requests(req: DeleteRequestsRequest, session_id: str = Depends(get_session_id)):
-    """Session 9: used by the "Demo: seed a full batch" retraction flow --
-    the frontend remembers the task_ids of the batch it just seeded and,
-    on the NEXT page load, deletes that batch here before re-enabling the
+    """Used by the "Demo: seed a full batch" retraction flow -- the
+    frontend remembers the task_ids of the batch it just seeded and, on
+    the NEXT page load, deletes that batch here before re-enabling the
     seed button, so repeated demo runs don't pile up stale synthetic
     requests. Only rows still status='pending' are removed -- a task
     that has since been recommended/approved is never silently deleted."""
@@ -500,36 +488,35 @@ def delete_requests(req: DeleteRequestsRequest, session_id: str = Depends(get_se
 
 @app.post("/demo/batch/activate")
 def activate_demo_batch(session_id: str = Depends(get_session_id)):
-    """Session 32, at explicit user request: "Create demo batch of tasks"
-    on the Waiting List page -- copies the shared, fixed 70-task template
-    pool (see store.template_tasks/add_template_task, populated by
+    """"Create demo batch of tasks" on the Waiting List page -- copies the
+    shared, fixed task template pool (see
+    store.template_tasks/add_template_task, populated by
     railblock.integrations.import_tasks from tasks.csv) into THIS
     visitor's own, isolated requests, so a publicly-shared hosted link
-    doesn't need me to reload it by hand between demo rounds anymore."""
+    doesn't need manual reloading between demo rounds."""
     activated = get_store().activate_demo_batch(session_id)
     return {"activated": activated}
 
 
 @app.post("/demo/batch/reset")
 def reset_demo_batch(session_id: str = Depends(get_session_id)):
-    """Session 32, at explicit user request: the Waiting List page's
-    "Reset" button -- clears this visitor's entire requests/approved/
-    recommendation/schedule-options footprint (see
-    store.reset_session_tasks), i.e. the demo batch (whatever's left of
-    it) AND anything scheduled/approved from it, everywhere including the
-    Weekly/Monthly Schedule."""
+    """The Waiting List page's "Reset" button -- clears this visitor's
+    entire requests/approved/recommendation/schedule-options footprint
+    (see store.reset_session_tasks), i.e. the demo batch (whatever's left
+    of it) AND anything scheduled/approved from it, everywhere including
+    the Weekly/Monthly Schedule."""
     get_store().reset_session_tasks(session_id)
     return {"reset": True}
 
 
 @app.post("/emergency/reset")
 def reset_emergencies(session_id: str = Depends(get_session_id)):
-    """Session 32, at explicit user request: the Emergency Handling page's
-    own "Reset" button -- clears every emergency and reassignment override
-    THIS visitor created (see store.reset_session_emergencies). A
-    displaced task's reassignment is only ever an override on top of its
-    real stored data, never an overwrite, so removing these rows alone
-    puts every displaced task back at its original slot."""
+    """The Emergency Handling page's own "Reset" button -- clears every
+    emergency and reassignment override THIS visitor created (see
+    store.reset_session_emergencies). A displaced task's reassignment is
+    only ever an override on top of its real stored data, never an
+    overwrite, so removing these rows alone puts every displaced task
+    back at its original slot."""
     get_store().reset_session_emergencies(session_id)
     return {"reset": True}
 
@@ -576,14 +563,13 @@ def recommend(req: RecommendRequest, session_id: str = Depends(get_session_id)):
     if pending.empty:
         raise HTTPException(400, "no waiting-list requests to schedule -- submit requests via POST /requests or POST /demo/seed first")
 
-    # Session 13: seeded deterministically from start_date, not left random
-    # -- an unseeded goods forecast meant "Generate Recommendation" could
-    # show a different completion result on every click for the exact same
+    # Seeded deterministically from start_date, not left random -- an
+    # unseeded goods forecast would let "Generate Recommendation" show a
+    # different completion result on every click for the exact same
     # waiting-list batch, which is real synthetic variance but genuinely
-    # bad for a live demo (found while diagnosing a completion-rate gap
-    # between a standalone test run and the live API for the same task
-    # batch). Still a real, freshly-generated synthetic forecast -- just
-    # reproducible for a given date range instead of re-randomized per call.
+    # bad for a live demo. Still a real, freshly-generated synthetic
+    # forecast -- just reproducible for a given date range instead of
+    # re-randomized per call.
     goods_occupancy = generate_goods_forecast(
         ctx.sections, req.start_date, n_days=req.n_days, seed=int(req.start_date.strftime("%Y%m%d"))
     )
@@ -611,8 +597,8 @@ def recommend(req: RecommendRequest, session_id: str = Depends(get_session_id)):
 
 @app.get("/schedule/recommendation")
 def get_last_recommendation(session_id: str = Depends(get_session_id)):
-    """Session 7: read-only peek at the last POST /schedule/recommend
-    result, without re-triggering a solve -- the frontend has separate
+    """Read-only peek at the last POST /schedule/recommend result,
+    without re-triggering a solve -- the frontend has separate
     "Recommended Scheduling" (trigger + inspect) and "Pending Approval"
     (review + approve) views that both need this same data without forcing
     the user back through the trigger action just to look at it again.
@@ -669,17 +655,16 @@ def _tag_adaptive_allocation(opt: ScheduleOption, rescued_ids: set[str], demand_
 
 
 def _apply_adaptive_allocation_upfront(ranked: pd.DataFrame) -> tuple[pd.DataFrame, set[str], dict[str, float]]:
-    """Session 14, per explicit user direction: run EVERY ranked task
-    through the adaptive-allocation regression BEFORE it ever reaches
-    CP-SAT -- not as a fallback retried only on whatever CP-SAT couldn't
-    place. Every task the model offers a safe reduction for gets its
-    `estimated_block_hours` replaced by that reduced value right here,
-    unconditionally -- CP-SAT then only ever sees the (possibly trimmed)
-    duration and has no opportunity to use the task's original full
-    demand, even for a task that would have fit at full size. This was
-    an explicit, deliberate choice over the alternative (let CP-SAT
-    choose full vs. trimmed per task) after that tradeoff was raised
-    directly -- see PROGRESS.md.
+    """Runs EVERY ranked task through the adaptive-allocation regression
+    BEFORE it ever reaches CP-SAT -- not as a fallback retried only on
+    whatever CP-SAT couldn't place. Every task the model offers a safe
+    reduction for gets its `estimated_block_hours` replaced by that
+    reduced value right here, unconditionally -- CP-SAT then only ever
+    sees the (possibly trimmed) duration and has no opportunity to use
+    the task's original full demand, even for a task that would have fit
+    at full size. This is a deliberate choice over the alternative
+    (letting CP-SAT choose full vs. trimmed per task) -- see PROGRESS.md
+    for the tradeoff.
 
     One consequence worth being plain about: because full duration is
     never even attempted for a trimmed task, "was rescued by trimming"
@@ -709,11 +694,10 @@ def _combine_into_occupied_and_subtract(
     ranked_tasks: pd.DataFrame,
     capacity: pd.DataFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[dict], pd.DataFrame]:
-    """Session 26, at explicit user request, after a real reported gap:
-    "whenever allocating block for a department task, you also analyze
-    the previously scheduled blocks and try to combine with earlier
-    scheduled other department tasks" -- covers blocks approved in a
-    genuinely PAST scheduling run (store.approved).
+    """When allocating a block for a department task, also considers
+    blocks approved in a genuinely PAST scheduling run (store.approved)
+    for combining with a different department's earlier-scheduled task,
+    not just other tasks in the current solve.
 
     `occupied_windows` (approved_rows_to_window_rows()'s view of
     store.approved) is given a real chance to absorb a different-
@@ -750,32 +734,28 @@ def _finalize_schedule(
     forced_full_rows: list[dict] | None = None,
     forced_windows: pd.DataFrame | None = None,
 ) -> dict:
-    """Session 30, at explicit user request: train cancellation is out of
-    scope, so the former critical-tasks-first two-solve architecture
-    (Step A solving Critical alone, this function as "Step D" for
-    whatever was left, plus human-confirmed escalation in between) is
-    gone -- `ranked` is now the WHOLE pending pool (every priority
-    together), and CP-SAT runs exactly once, here, via
-    generate_schedule_options. Critical tasks compete for the same
-    windows as Moderate/Routine, just with a higher whittle_index weight
-    (see prioritization/whittle.py) -- a Critical task that doesn't fit
-    simply stays unscheduled, same as any other priority tier.
+    """Train cancellation is out of scope, so there is no
+    critical-tasks-first two-solve architecture (no separate solve for
+    Critical alone plus human-confirmed escalation in between) --
+    `ranked` is the WHOLE pending pool (every priority together), and
+    CP-SAT runs exactly once, here, via generate_schedule_options.
+    Critical tasks compete for the same windows as Moderate/Routine, just
+    with a higher whittle_index weight (see prioritization/whittle.py) --
+    a Critical task that doesn't fit simply stays unscheduled, same as
+    any other priority tier.
 
     `forced_full_rows`/`forced_windows`: from `_combine_into_occupied_
     and_subtract` against store.approved's already-occupied windows (a
-    task from a genuinely PAST scheduling run) -- still merged in here
-    exactly as before, this part of the flow is unrelated to the
-    critical/non-critical split that was removed. (The former partially-
-    forced-task machinery, `forced_extra_sessions`, was only ever
-    produced by `apply_cross_tier_combining`, also removed -- every
-    remaining forcing path only ever places a task WHOLE, never
-    partially, so there's nothing left to merge that way.)
+    task from a genuinely PAST scheduling run) -- merged in here
+    regardless of priority tier. Every forcing path only ever places a
+    task WHOLE, never partially, so there's nothing to merge at a
+    per-session level.
 
-    `capacity` (Session 25, at explicit user request for a large
-    scheduling-time reduction): the SAME real per-(section,date)-window
-    capacity table the caller already computed once -- the caller is
-    responsible for it already reflecting whatever forced placements
-    consumed (see `subtract_consumed_capacity`) before it reaches here."""
+    `capacity`: the SAME real per-(section,date)-window capacity table
+    the caller already computed once, to avoid recomputing an expensive
+    availability sweep -- the caller is responsible for it already
+    reflecting whatever forced placements consumed (see
+    `subtract_consumed_capacity`) before it reaches here."""
     options = generate_schedule_options(
         ranked, ctx.sections, ctx.passenger_occupancy, goods_occupancy, req.start_date,
         n_days=req.n_days, time_limit_s=req.time_limit_s, capacity=capacity,
@@ -858,59 +838,57 @@ def _shape_option(opt, total_tasks: int, total_critical: int) -> dict:
 
 @app.post("/schedule/options")
 def schedule_options(req: ScheduleOptionsRequest, session_id: str = Depends(get_session_id)):
-    """Session 30, at explicit user request: train cancellation is out of
-    scope, so the former "Critical tasks first" two-solve architecture
-    (a separate, earlier CP-SAT solve for Critical alone, escalation for
-    whatever didn't fit, then a second solve for everything else) is
-    gone. Every pending request -- every priority -- is ranked and solved
-    TOGETHER, in exactly one CP-SAT pass (inside _finalize_schedule).
-    Critical still gets scheduled first in practice, purely because it
-    carries a higher whittle_index weight (prioritization/whittle.py),
-    not because of any special-cased solve order."""
+    """Train cancellation is out of scope, so there is no "Critical tasks
+    first" two-solve architecture (no separate, earlier CP-SAT solve for
+    Critical alone with escalation for whatever didn't fit, followed by a
+    second solve for everything else). Every pending request -- every
+    priority -- is ranked and solved TOGETHER, in exactly one CP-SAT pass
+    (inside _finalize_schedule). Critical still gets scheduled first in
+    practice, purely because it carries a higher whittle_index weight
+    (prioritization/whittle.py), not because of any special-cased solve
+    order."""
     ctx = get_corridor_context()
     store = get_store()
     pending = store.non_approved_requests_df(session_id)
     if pending.empty:
         raise HTTPException(400, "no waiting-list requests to schedule -- submit requests via POST /requests or POST /demo/seed first")
 
-    # Session 13: same deterministic-seeding fix as /schedule/recommend --
-    # see that endpoint's comment for why.
+    # Same deterministic-seeding as /schedule/recommend -- see that
+    # endpoint's comment for why.
     goods_occupancy = generate_goods_forecast(
         ctx.sections, req.start_date, n_days=req.n_days, seed=int(req.start_date.strftime("%Y%m%d"))
     )
-    # Session 25, at explicit user request for a large scheduling-time
-    # reduction: one real per-(section,date) availability cache, shared
-    # by ranking's congestion calc and the capacity table below -- real
-    # profiling showed the same expensive availability sweep otherwise
-    # ran redundantly against byte-identical occupancy data. See
-    # compute_availability's docstring.
+    # One real per-(section,date) availability cache, shared by ranking's
+    # congestion calc and the capacity table below: without it, the same
+    # expensive availability sweep runs redundantly against
+    # byte-identical occupancy data. See compute_availability's
+    # docstring.
     availability_cache: dict = {}
     ranked = rank_tasks(
         pending, ctx.sections, ctx.passenger_occupancy, goods_occupancy, req.start_date, n_days=req.n_days,
         availability_cache=availability_cache,
     )
 
-    # Session 14, at explicit user request: every ranked task passes
-    # through the adaptive-allocation regression BEFORE CP-SAT ever runs.
+    # Every ranked task passes through the adaptive-allocation regression
+    # BEFORE CP-SAT ever runs.
     ranked, trimmed_ids, demand_lookup = _apply_adaptive_allocation_upfront(ranked)
 
     capacity = compute_daily_window_capacity(
         ctx.sections, ctx.passenger_occupancy, goods_occupancy, req.start_date, req.n_days,
         availability_cache=availability_cache,
     )
-    # Session 26, at explicit user request, after a real reported gap:
-    # a task approved in a genuinely PAST scheduling run still occupies
-    # a real window here -- give it the same chance to absorb a NEW
+    # A task approved in a genuinely PAST scheduling run still occupies a
+    # real window here -- give it the same chance to absorb a NEW
     # different-department task's spare "max not sum" room as anything
     # else below, before capacity is (conservatively) reduced for it.
     #
-    # Session 37: _live_approved_rows (not raw store.get_approved), so a
-    # task an earlier emergency already displaced is subtracted at its
-    # REAL current window, not its stale original one -- otherwise this
-    # would (a) subtract capacity from a slot the task no longer
-    # occupies, wasting real room a new task could have used, and (b)
-    # never account for the slot it actually moved into, risking a
-    # genuine double-booking there.
+    # Uses _live_approved_rows, not raw store.get_approved, so a task an
+    # earlier emergency already displaced is subtracted at its REAL
+    # current window, not its stale original one -- otherwise this would
+    # (a) subtract capacity from a slot the task no longer occupies,
+    # wasting real room a new task could have used, and (b) never
+    # account for the slot it actually moved into, risking a genuine
+    # double-booking there.
     approved_windows = approved_rows_to_window_rows(_live_approved_rows(session_id), capacity)
     ranked, capacity, forced_full_rows, forced_windows = _combine_into_occupied_and_subtract(
         approved_windows, ranked, capacity
@@ -979,19 +957,19 @@ def approve(req: ApproveRequest, session_id: str = Depends(get_session_id)):
 
 
 def _expanded_schedule_rows(session_id: str) -> list[dict]:
-    """Session 28: factored out of GET /schedule/weekly so it can be
-    reused as-is by the Emergency Handling flow (finding which real,
-    currently-scheduled blocks an emergency displaces needs the exact
-    same merged live+granted-history view the Weekly/Monthly Schedule
-    page itself renders -- never a second, subtly different notion of
-    "the current schedule").
+    """Factored out of GET /schedule/weekly so it can be reused as-is by
+    the Emergency Handling flow (finding which real, currently-scheduled
+    blocks an emergency displaces needs the exact same merged
+    live+granted-history view the Weekly/Monthly Schedule page itself
+    renders -- never a second, subtly different notion of "the current
+    schedule").
 
     Merges store.approved (live-approved tasks from this running
     session) with the fixed granted-history dataset (railblock.synthetic.
     granted_history -- already-"approved" blocks spanning one month
     before today through the SIH evaluation window), expands each into
-    one row per real (date, window) session, then (Session 30) applies
-    any `emergency_reassignments` override -- a task an earlier emergency
+    one row per real (date, window) session, then applies any
+    `emergency_reassignments` override -- a task an earlier emergency
     displaced shows at its NEW placement (or not at all, if removed with
     no slot found/declined), never at its stale original slot."""
     store = get_store()
@@ -1017,18 +995,17 @@ def _expanded_schedule_rows(session_id: str) -> list[dict]:
                     "requester_priority": r["requester_priority"],
                     "negotiated_exception": r.get("negotiated_exception", False),
                     "completion_verified": r.get("completion_verified", False),
-                    # Session 28: explicit provenance -- lets a caller tell a
-                    # real live-approved row apart from a granted-history
+                    # Explicit provenance -- lets a caller tell a real
+                    # live-approved row apart from a granted-history
                     # synthetic one now that both are merged into this same
                     # matrix (granted-history rows already carry this field
                     # themselves; a live row never does, hence the fallback).
                     "data_source": r.get("data_source", "LIVE_APPROVED"),
-                    # Session 14, at explicit user request: the real allocated
-                    # duration, alongside the original demand where the
-                    # adaptive-allocation regression trimmed it -- .get()
-                    # with a fallback since an approved row from before this
-                    # feature existed won't have demanded_block_hours/
-                    # adaptive_allocation at all.
+                    # The real allocated duration, alongside the original
+                    # demand where the adaptive-allocation regression
+                    # trimmed it -- .get() with a fallback since an
+                    # approved row from before this feature existed won't
+                    # have demanded_block_hours/adaptive_allocation at all.
                     "estimated_block_hours": r.get("estimated_block_hours"),
                     "demanded_block_hours": r.get("demanded_block_hours", r.get("estimated_block_hours")),
                     "adaptive_allocation": r.get("adaptive_allocation", False),
@@ -1038,14 +1015,14 @@ def _expanded_schedule_rows(session_id: str) -> list[dict]:
 
 
 def _apply_emergency_overrides(expanded: list[dict], session_id: str) -> list[dict]:
-    """Session 30: `expanded` is the per-session row list built above --
-    for every task_id with an `emergency_reassignments` entry, either
-    drops it entirely (removed: no alternative slot found, or the human
-    declined the reschedule) or replaces its session(s) with the
-    proposal's new one(s), tagging `rescheduled_due_to_emergency` so the
-    frontend can show why a block moved. A task can have MULTIPLE
-    sessions here if the reschedule solve had to split it (every task is
-    splittable now -- see maintenance_tasks.splittable_for)."""
+    """`expanded` is the per-session row list built above -- for every
+    task_id with an `emergency_reassignments` entry, either drops it
+    entirely (removed: no alternative slot found, or the human declined
+    the reschedule) or replaces its session(s) with the proposal's new
+    one(s), tagging `rescheduled_due_to_emergency` so the frontend can
+    show why a block moved. A task can have MULTIPLE sessions here if the
+    reschedule solve had to split it (every task is splittable -- see
+    maintenance_tasks.splittable_for)."""
     reassignments = get_store().get_emergency_reassignments(session_id)
     if not reassignments:
         return expanded
@@ -1062,11 +1039,10 @@ def _apply_emergency_overrides(expanded: list[dict], session_id: str) -> list[di
         if reassignment.get("removed"):
             continue
         template = dict(entries[0])
-        # Session 37 fix, after a real reported gap: `template` can be a
-        # naturally-split task's own row, which carries its OWN
-        # pre-reassignment `sessions` array (see splitting.py/
-        # collapse_split_results) -- copying it as-is and only
-        # overwriting the top-level date/start/end below would leave
+        # `template` can be a naturally-split task's own row, which
+        # carries its OWN pre-reassignment `sessions` array (see
+        # splitting.py/collapse_split_results) -- copying it as-is and
+        # only overwriting the top-level date/start/end below would leave
         # that STALE array dangling on the new, reassigned row, showing
         # the task's OLD split sessions alongside its real NEW single
         # placement. Dropped here; each exploded row below is a clean,
@@ -1090,19 +1066,19 @@ def _apply_emergency_overrides(expanded: list[dict], session_id: str) -> list[di
 
 
 def _live_approved_rows(session_id: str) -> list[dict]:
-    """Session 37, at explicit user request, after a real reported gap:
-    task_history/blocks_active/blocks_upcoming used to read
-    store.get_approved(session_id) directly -- only the GRANTED-HISTORY
-    portion of the Dashboard/history endpoints ever went through
-    _apply_reassignment_overrides_df (via _granted_history_df). A LIVE
-    (not granted-history) task an emergency displaced kept showing its
-    stale original date/window in Approved Tasks / Currently Active /
-    Upcoming Blocks, even though the exact same override was already
-    correctly applied to it in the Weekly/Monthly Schedule view (via
-    _expanded_schedule_rows). _apply_emergency_overrides is generic over
-    any list of dicts carrying task_id/date/window_index/start_minute/
-    end_minute -- store.approved's own rows already have exactly that
-    shape, so it's directly reusable here with no adaptation needed."""
+    """task_history/blocks_active/blocks_upcoming must not read
+    store.get_approved(session_id) directly: only the GRANTED-HISTORY
+    portion of the Dashboard/history endpoints goes through
+    _apply_reassignment_overrides_df (via _granted_history_df), so a LIVE
+    (not granted-history) task an emergency displaced would otherwise
+    keep showing its stale original date/window in Approved Tasks /
+    Currently Active / Upcoming Blocks, even though the exact same
+    override is already correctly applied to it in the Weekly/Monthly
+    Schedule view (via _expanded_schedule_rows). _apply_emergency_overrides
+    is generic over any list of dicts carrying
+    task_id/date/window_index/start_minute/end_minute -- store.approved's
+    own rows already have exactly that shape, so it's directly reusable
+    here with no adaptation needed."""
     return _apply_emergency_overrides(get_store().get_approved(session_id), session_id)
 
 
@@ -1137,23 +1113,20 @@ def _emergency_block_rows(session_id: str) -> list[dict]:
 
 @app.get("/schedule/weekly")
 def weekly_matrix(session_id: str = Depends(get_session_id)):
-    """Session 28, at explicit user request, after a real reported gap:
-    this used to read ONLY store.approved (live-approved tasks from this
-    running session), so the fixed granted-history dataset never showed
+    """Reading ONLY store.approved (live-approved tasks from this running
+    session) would leave the fixed granted-history dataset never showing
     up on the Weekly/Monthly Schedule page at all, even though the exact
     same dataset already powers the Dashboard's Currently Active/Upcoming
-    sections and the Completed History page. Merges both sources now,
-    same as those other endpoints already do -- the WHOLE granted-history
-    set (past AND future rows), not just the not-yet-completed subset
-    /tasks/history uses, since this is a real calendar view where a past
-    date should show what already happened.
+    sections and the Completed History page. Merges both sources, same as
+    those other endpoints -- the WHOLE granted-history set (past AND
+    future rows), not just the not-yet-completed subset /tasks/history
+    uses, since this is a real calendar view where a past date should
+    show what already happened.
 
-    Session 30: also includes every emergency's own block (see
-    _emergency_block_rows) -- this is how "in the weekly and monthly
-    schedule, the time at when the emergency task was created and till
-    the end of the emergency situation, it should show emergency
-    situation" is satisfied, in the exact same grid every other block
-    already renders in."""
+    Also includes every emergency's own block (see _emergency_block_rows)
+    -- an emergency's occupied time, from creation through the end of the
+    situation, shows in the exact same grid every other block already
+    renders in."""
     expanded = _expanded_schedule_rows(session_id) + _emergency_block_rows(session_id)
     if not expanded:
         return {"dates": [], "sections": [], "cells": {}}
@@ -1176,7 +1149,7 @@ def monthly_matrix(
         return {"weeks": list(range(1, n_weeks + 1)), "sections": [], "cells": {}, "status": "NO_REQUESTS"}
 
     n_days = n_weeks * 7
-    # Session 13: same deterministic-seeding fix as /schedule/recommend.
+    # Same deterministic-seeding as /schedule/recommend.
     goods_occupancy = generate_goods_forecast(ctx.sections, start_date, n_days=n_days, seed=int(start_date.strftime("%Y%m%d")))
     ranked = rank_tasks(all_tasks, ctx.sections, ctx.passenger_occupancy, goods_occupancy, start_date, n_days=n_days)
     result = generate_monthly_plan(
@@ -1198,18 +1171,18 @@ def monthly_matrix(
 # ------------------------------------------------------------------ history
 
 def _granted_history_df(session_id: str) -> pd.DataFrame:
-    """Session 30: overridden by any emergency reassignment before
-    classification, so a granted-history task an emergency displaced
-    classifies (completed/active/upcoming) by its real NEW window, or
-    disappears entirely if removed with no slot found/declined -- never
-    still shown "active" at a slot it's no longer actually in. (Scoped to
+    """Overridden by any emergency reassignment before classification, so
+    a granted-history task an emergency displaced classifies
+    (completed/active/upcoming) by its real NEW window, or disappears
+    entirely if removed with no slot found/declined -- never still shown
+    "active" at a slot it's no longer actually in. (Scoped to
     granted-history rows only, not live store.approved ones -- the bulk
     of pre-existing schedule data an emergency demo interacts with.)
 
-    Session 40: one extra row from demo_active_row(), computed fresh
-    against the real current moment on every call (never baked into the
-    cached, static load_granted_history() result -- see that function's
-    own docstring for why it would go stale), appended BEFORE the
+    Includes one extra row from demo_active_row(), computed fresh against
+    the real current moment on every call (never baked into the cached,
+    static load_granted_history() result -- see that function's own
+    docstring for why it would go stale), appended BEFORE the
     reassignment override step above so it's just as eligible to be
     displaced by an emergency as any other row here."""
     ctx = get_corridor_context()
@@ -1226,14 +1199,14 @@ def _apply_reassignment_overrides_df(df: pd.DataFrame, session_id: str) -> pd.Da
     df = df[~df["task_id"].isin(removed_ids)]
     if not {"start_minute", "end_minute", "date"}.issubset(df.columns):
         return df
-    # Session 30 fix, after a real reported crash: granted-history's own
-    # start_minute/end_minute are whole-minute ints (see granted_history.
-    # py's _place_in_free_time), but a reassignment's new placement can
-    # be a real fractional minute (the reschedule solve's own float
-    # arithmetic) -- assigning a float into an int64 column via .loc
-    # raises TypeError instead of silently truncating. Widen to float64
-    # first, same fix combining.py's force_combinable_placements already
-    # applies to window_minutes for the identical int/float mixing reason.
+    # granted-history's own start_minute/end_minute are whole-minute ints
+    # (see granted_history.py's _place_in_free_time), but a reassignment's
+    # new placement can be a real fractional minute (the reschedule
+    # solve's own float arithmetic) -- assigning a float into an int64
+    # column via .loc raises TypeError instead of silently truncating.
+    # Widen to float64 first, same fix combining.py's
+    # force_combinable_placements already applies to window_minutes for
+    # the identical int/float mixing reason.
     df["start_minute"] = df["start_minute"].astype(float)
     df["end_minute"] = df["end_minute"].astype(float)
     present_ids = set(df["task_id"])
@@ -1241,17 +1214,15 @@ def _apply_reassignment_overrides_df(df: pd.DataFrame, session_id: str) -> pd.Da
     if not reassigned_ids:
         return df
 
-    # Session 37 fix, at explicit user request, after a real reported
-    # gap ("the rescheduled tasks should show their updated schedule
-    # date, time, sessions"): the old in-place `.loc[mask, col] = value`
-    # only ever wrote the FIRST session of a reassignment onto the
-    # single existing row -- a granted-history task the reschedule solve
-    # had to SPLIT across multiple sessions silently lost every session
-    # past the first, and never got a `rescheduled_due_to_emergency` tag
-    # at all (unlike a live store.approved task via
-    # _apply_emergency_overrides, which already explodes multi-session
-    # reassignments into one row per session). Rebuilt the same way:
-    # one output row per real session, tagged consistently.
+    # An in-place `.loc[mask, col] = value` would only write the FIRST
+    # session of a reassignment onto the single existing row -- a
+    # granted-history task the reschedule solve had to SPLIT across
+    # multiple sessions would silently lose every session past the
+    # first, and never get a `rescheduled_due_to_emergency` tag at all
+    # (unlike a live store.approved task via _apply_emergency_overrides,
+    # which already explodes multi-session reassignments into one row
+    # per session). Instead rebuilt the same way: one output row per
+    # real session, tagged consistently.
     kept = df[~df["task_id"].isin(reassigned_ids)].to_dict("records")
     new_rows = []
     for tid in reassigned_ids:
@@ -1276,19 +1247,18 @@ def _emergency_blocks_df(session_id: str) -> pd.DataFrame:
 
 @app.get("/tasks/history")
 def task_history(session_id: str = Depends(get_session_id)):
-    """Session 17: now also includes the fixed granted-history dataset's
-    NOT-YET-COMPLETED rows (currently active or still-upcoming granted
-    blocks), merged alongside the live store.approved rows -- an
-    already-granted block that hasn't finished yet belongs here, not in
-    GET /tasks/history/completed, exactly as with any live approved task.
+    """Also includes the fixed granted-history dataset's NOT-YET-COMPLETED
+    rows (currently active or still-upcoming granted blocks), merged
+    alongside the live store.approved rows -- an already-granted block
+    that hasn't finished yet belongs here, not in GET
+    /tasks/history/completed, exactly as with any live approved task.
     Each row's real data_source field (USER_SUBMITTED/FILE_IMPORTED/
     SYNTHETIC for live rows, GRANTED_HISTORY_SYNTHETIC for these) makes
     the provenance honest and inspectable, never silently blended.
 
-    Session 37, at explicit user request, after a real reported gap:
-    _live_approved_rows (not raw store.get_approved) -- a live task an
-    emergency displaced must show its real CURRENT window here, the
-    same way a granted-history one already did via _granted_history_df."""
+    Uses _live_approved_rows, not raw store.get_approved -- a live task an
+    emergency displaced must show its real CURRENT window here, the same
+    way a granted-history one already does via _granted_history_df."""
     live = _live_approved_rows(session_id)
     classified = classify_blocks_by_time(_granted_history_df(session_id))
     still_relevant = pd.concat([classified["active"], classified["upcoming"]], ignore_index=True)
@@ -1298,12 +1268,12 @@ def task_history(session_id: str = Depends(get_session_id)):
 
 @app.get("/tasks/history/completed")
 def task_history_completed(session_id: str = Depends(get_session_id)):
-    """Session 17: the fixed granted-history dataset's rows whose real
-    grant window has already ended, relative to real current time -- the
-    Completed History page. Live store.approved rows are deliberately NOT
-    included here (this project has no real "block execution confirmed
-    complete" signal for a live-approved task -- see completion_verified's
-    existing honest always-False handling elsewhere)."""
+    """The fixed granted-history dataset's rows whose real grant window
+    has already ended, relative to real current time -- the Completed
+    History page. Live store.approved rows are deliberately NOT included
+    here (this project has no real "block execution confirmed complete"
+    signal for a live-approved task -- see completion_verified's existing
+    honest always-False handling elsewhere)."""
     classified = classify_blocks_by_time(_granted_history_df(session_id))
     completed = _df_records(classified["completed"])
     return {"count": len(completed), "tasks": completed}
@@ -1311,13 +1281,13 @@ def task_history_completed(session_id: str = Depends(get_session_id)):
 
 @app.get("/blocks/active")
 def blocks_active(session_id: str = Depends(get_session_id)):
-    """Session 17, for the Dashboard's Currently Active Blocks section:
-    every block (live-approved, granted-history, or -- Session 30 -- an
-    emergency) whose real window (date, start_minute, end_minute)
-    contains right now. Negotiated-exception rows (no modeled start/end)
-    can never appear here -- see classify_blocks_by_time's docstring.
+    """For the Dashboard's Currently Active Blocks section: every block
+    (live-approved, granted-history, or an emergency) whose real window
+    (date, start_minute, end_minute) contains right now.
+    Negotiated-exception rows (no modeled start/end) can never appear
+    here -- see classify_blocks_by_time's docstring.
 
-    Session 37: _live_approved_rows, same reasoning as task_history."""
+    Uses _live_approved_rows, same reasoning as task_history."""
     live_active = classify_blocks_by_time(pd.DataFrame(_live_approved_rows(session_id)))["active"]
     hist_active = classify_blocks_by_time(_granted_history_df(session_id))["active"]
     emrg_active = classify_blocks_by_time(_emergency_blocks_df(session_id))["active"]
@@ -1329,11 +1299,11 @@ def blocks_active(session_id: str = Depends(get_session_id)):
 
 @app.get("/blocks/upcoming")
 def blocks_upcoming(limit: int = Query(5, ge=1, le=50), session_id: str = Depends(get_session_id)):
-    """Session 17, for the Dashboard's Upcoming Blocks section: the next
-    `limit` blocks (live-approved, granted-history, or -- Session 30 -- an
-    emergency) whose real window hasn't started yet, soonest first.
+    """For the Dashboard's Upcoming Blocks section: the next `limit`
+    blocks (live-approved, granted-history, or an emergency) whose real
+    window hasn't started yet, soonest first.
 
-    Session 37: _live_approved_rows, same reasoning as task_history."""
+    Uses _live_approved_rows, same reasoning as task_history."""
     live_upcoming = classify_blocks_by_time(pd.DataFrame(_live_approved_rows(session_id)))["upcoming"]
     hist_upcoming = classify_blocks_by_time(_granted_history_df(session_id))["upcoming"]
     emrg_upcoming = classify_blocks_by_time(_emergency_blocks_df(session_id))["upcoming"]
@@ -1347,16 +1317,15 @@ def blocks_upcoming(limit: int = Query(5, ge=1, le=50), session_id: str = Depend
 
 @app.post("/emergency/create")
 def emergency_create(session_id: str = Depends(get_session_id)):
-    """Session 30, at explicit user request: creates a brand-new demo
-    emergency EVERY call (no dedup, no reuse) -- an instantly-placed,
-    UNAPPROVED block that occupies real time on a section right now, no
-    approval needed ("a demo emergency situation has to be done as fast
-    as possible"). Immediately computes which already-scheduled blocks it
-    displaces (any section -- an incident can cause trains to be
-    stopped/rerouted elsewhere too) and a PROPOSED single-option
-    reschedule for each (never auto-applied -- see POST /emergency/
-    {task_id}/resolve), so the human can review before anything actually
-    moves."""
+    """Creates a brand-new demo emergency EVERY call (no dedup, no
+    reuse) -- an instantly-placed, UNAPPROVED block that occupies real
+    time on a section right now, no approval needed (a real emergency has
+    to be actioned as fast as possible). Immediately computes which
+    already-scheduled blocks it displaces (any section -- an incident can
+    cause trains to be stopped/rerouted elsewhere too) and a PROPOSED
+    single-option reschedule for each (never auto-applied -- see POST
+    /emergency/{task_id}/resolve), so the human can review before
+    anything actually moves."""
     ctx = get_corridor_context()
     store = get_store()
     now = now_ist()
@@ -1382,9 +1351,9 @@ def emergency_create(session_id: str = Depends(get_session_id)):
         })
 
     affected_task_ids = {t["task_id"] for t in enriched}
-    # Session 37: _live_approved_rows, so a task an EARLIER emergency
-    # already relocated is treated as occupying its real current window
-    # here too, not the stale original one this row still carries in
+    # Uses _live_approved_rows, so a task an EARLIER emergency already
+    # relocated is treated as occupying its real current window here too,
+    # not the stale original one this row still carries in
     # store.approved itself.
     other_occupied_rows = [r for r in _live_approved_rows(session_id) if r["task_id"] not in affected_task_ids]
 

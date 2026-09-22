@@ -1,22 +1,22 @@
-"""Option 2 extension, at explicit user request: identify which pending
-tasks are genuine department-combining candidates BEFORE the CP-SAT solve
-ever runs, using exactly the three checks asked for -- same section, a
-real overlap in the days each could plausibly happen ([raised_date,
-due_date] windows intersect), and different departments (SR 3.51.6's
-joint disconnection only lets *different* crews work the same window
-concurrently -- two tasks from the SAME department still queue
-sequentially, one crew can't be in two places).
+"""Option 2 extension: identify which pending tasks are genuine
+department-combining candidates BEFORE the CP-SAT solve ever runs, using
+three checks -- same section, a real overlap in the days each could
+plausibly happen ([raised_date, due_date] windows intersect), and
+different departments (SR 3.51.6's joint disconnection only lets
+*different* crews work the same window concurrently -- two tasks from
+the SAME department still queue sequentially, one crew can't be in two
+places).
 
 `find_combinable_pairs`/`partner_minutes_by_task` only ever identify
 candidates, used to bias split-sizing toward a specific partner's real
-duration. `force_combinable_placements` goes further, at explicit user
-request after CP-SAT's own combined_window/COORDINATION_BONUS incentive
-(model.py) repeatedly failed to actually realize a real, verified
-combining opportunity in production, even after sizing was fixed --
-COORDINATION_BONUS is real money on the table in the objective, but
-CP-SAT is solving the WHOLE horizon under a time limit with 8 parallel
-search workers, and a locally obvious combine can simply lose out to
-whatever the search happened to explore first elsewhere. This function
+duration. `force_combinable_placements` goes further: CP-SAT's own
+combined_window/COORDINATION_BONUS incentive (model.py) can repeatedly
+fail to actually realize a verified combining opportunity on its own,
+even once sizing is right -- COORDINATION_BONUS is real money on the
+table in the objective, but CP-SAT is solving the WHOLE horizon under a
+time limit with 8 parallel search workers, and a locally obvious combine
+can simply lose out to whatever the search happened to explore first
+elsewhere. This function
 deterministically PRE-ASSIGNS a verified-feasible combination the moment
 one exists, instead of leaving it to chance: real section, real
 overlapping window, each task's own hours independently fitting the
@@ -98,33 +98,32 @@ def force_combinable_placements(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Returns (combined_schedule, remaining_tasks, capacity_after_combine).
 
-    Session 26, rewritten at explicit user request after two real
-    problems with the original pairwise version: (1) it let multiple
-    tasks from the SAME department stack into one "combined" window
-    with no cap at all (a real window showed 6 tasks combined, when a
-    joint disconnection genuinely only makes sense as one crew per
-    department working concurrently); (2) it processed arbitrary pairs
-    in due-date order rather than reasoning about a section's real
-    department mix, so a case like MAF-TO (one Engineering task, two
-    Traction tasks, zero Signalling) never got tried in the way that
-    actually reflects what's really being competed for there.
+    A pairwise version of this predates the current one, and had two
+    real problems: (1) it let multiple tasks from the SAME department
+    stack into one "combined" window with no cap at all (a real window
+    showed 6 tasks combined, when a joint disconnection genuinely only
+    makes sense as one crew per department working concurrently); (2) it
+    processed arbitrary pairs in due-date order rather than reasoning
+    about a section's real department mix, so a case like MAF-TO (one
+    Engineering task, two Traction tasks, zero Signalling) never got
+    tried in the way that actually reflects what's really being competed
+    for there.
 
-    Rewritten a SECOND time, again at explicit user request, from
-    task-COUNT-based scarcity to TIME-based (sum of hours) scarcity, per
-    this exact user-given example: "if total time of engineering tasks
-    is 5 hrs, total time of signaling tasks is 3 hrs, and total time of
-    traction tasks is 2 hrs ... combine all 3 departments for 2 hrs,
-    engineering and signaling departments for remaining 1 hr and
-    remaining 2 hrs of engineering department should take place
-    separately." Counting TASKS (as the first rewrite did) is the wrong
-    scarce resource: a department with one 5-hour task and a department
-    with five 1-hour tasks have the same real combining budget, but the
-    old count-based rule would have called the first "scarcer". The real
-    bound is each department's own TOTAL remaining minutes in that
-    section, and it is a POOL, not a fixed parent-to-parent pairing --
-    ANY still-unplaced part from ANY task of that department can fill
-    the next shared window, so a department's second (third, ...) task
-    gets its fair chance too, not just its first.
+    The current version pools by department and ranks scarcity by TIME
+    (sum of hours), not task count. Counting TASKS is the wrong scarce
+    resource: a department with one 5-hour task and a department with
+    five 1-hour tasks have the same real combining budget, but a
+    count-based rule would call the first "scarcer". The real bound is
+    each department's own TOTAL remaining minutes in that section, and
+    it is a POOL, not a fixed parent-to-parent pairing -- ANY
+    still-unplaced part from ANY task of that department can fill the
+    next shared window, so a department's second (third, ...) task gets
+    its fair chance too, not just its first. For example, given
+    engineering tasks totalling 5h, signalling totalling 3h, and
+    traction totalling 2h in one section: triple-combine all 3
+    departments for 2h until traction is exhausted, then combine
+    engineering+signalling for the remaining 1h until signalling is
+    exhausted, leaving engineering's remaining 2h for the normal solve.
 
     The algorithm: per section, repeat --
       1. Among departments with real remaining minutes left (and not
@@ -151,12 +150,6 @@ def force_combinable_placements(
          combined window (always ending with the single most time-rich
          department, since nothing else is left to pair it with) is
          never forced -- it goes to the normal CP-SAT solve alone.
-
-    This reproduces the user's 5h/3h/2h example exactly: triple-combine
-    Engineering+Signalling+Traction until Traction (scarcest, 2h) is
-    exhausted; then Engineering+Signalling pair-combine until Signalling
-    (now scarcest, 1h left) is exhausted; Engineering's remaining 2h is
-    left for the normal solve.
 
     `expanded_tasks`: post expand_splittable_tasks() -- each row is a
     concretely-sized whole task or split part, still carrying its
@@ -212,17 +205,16 @@ def force_combinable_placements(
                 continue
             choice: dict[str, dict] = {}
             for d, parts in parts_by_dept.items():
-                # Session 26 fix, after a real reported gap: a part's
-                # size and a window's size are both derived through
-                # independent chains of floating-point arithmetic
-                # (proportional-distance splitting, delay-margin
-                # padding, etc.) that can legitimately land a part
-                # that's SUPPOSED to exactly fill a window a fraction of
-                # a second over it (e.g. 55.644444444... vs
-                # 55.644444) -- a real precision artifact, not a real
-                # capacity shortfall. 0.01 real minutes (well under a
-                # second) of tolerance absorbs that noise without
-                # meaningfully loosening the actual constraint.
+                # A part's size and a window's size are both derived
+                # through independent chains of floating-point
+                # arithmetic (proportional-distance splitting,
+                # delay-margin padding, etc.) that can legitimately land
+                # a part that's SUPPOSED to exactly fill a window a
+                # fraction of a second over it (e.g. 55.644444444... vs
+                # 55.644444) -- a precision artifact, not a real
+                # capacity shortfall. 0.01 minutes (well under a second)
+                # of tolerance absorbs that noise without meaningfully
+                # loosening the actual constraint.
                 fitting = [
                     p for p in parts
                     if p["raised_date"] <= date <= p["due_date"] and p["estimated_block_hours"] * 60.0 <= window_minutes + 0.01
@@ -323,15 +315,15 @@ def combined_window_rows(combined_schedule: pd.DataFrame, capacity: pd.DataFrame
     own subtraction) -- minutes_capacity must be the window's real total
     size, not what's left after this combination consumed some of it.
 
-    Session 26 fix, after a real reported "No details found" bug: `task_
-    ids` is built from `parent_task_id` (deduped), not the raw `task_id`
-    column -- `combined_schedule` rows are at PART granularity (e.g.
-    "TDMS-REQ-00202__part1of6" for a split task), which never exists as
-    a real request task_id, so the frontend's per-id GET /requests
-    lookup 404s and shows blank details for the whole block. This is the
-    single place every within-tier combining path builds its combined
-    windows from, so fixing it here covers all of them instead of
-    collapsing separately (and inconsistently) at each call site."""
+    `task_ids` is built from `parent_task_id` (deduped), not the raw
+    `task_id` column -- `combined_schedule` rows are at PART granularity
+    (e.g. "TDMS-REQ-00202__part1of6" for a split task), which never
+    exists as a real request task_id, so the frontend's per-id GET
+    /requests lookup would 404 and show blank details for the whole
+    block if the raw part id leaked through. This is the single place
+    every within-tier combining path builds its combined windows from,
+    so keeping the fix here covers all of them instead of collapsing
+    separately (and inconsistently) at each call site."""
     if combined_schedule.empty:
         return pd.DataFrame(columns=_WINDOW_COLUMNS)
 
@@ -361,11 +353,10 @@ def combined_window_rows(combined_schedule: pd.DataFrame, capacity: pd.DataFrame
 
 
 def subtract_consumed_capacity(capacity: pd.DataFrame, windows: pd.DataFrame) -> pd.DataFrame:
-    """Session 15, at explicit user request: reduce each window's real
-    available minutes by however much a PRIOR solve/forced-placement
-    already used there (from that pass's own real windows), so a later
-    solve on a different task set can never double-book capacity the
-    first pass already committed to.
+    """Reduces each window's available minutes by however much a PRIOR
+    solve/forced-placement already used there (from that pass's own
+    windows), so a later solve on a different task set can never
+    double-book capacity the first pass already committed to.
 
     Deliberately conservative: subtracts the whole amount from the
     window's total budget, not just from the consuming department's own
@@ -379,11 +370,10 @@ def subtract_consumed_capacity(capacity: pd.DataFrame, windows: pd.DataFrame) ->
     ever make the second pass MORE conservative than reality, never less,
     which is the direction that's safe to be wrong in.
 
-    Session 30: moved here from api/app.py (was `_subtract_consumed_
-    capacity`) -- needed by both the normal /schedule/options flow and
-    the Emergency Handling reschedule flow (railblock.scheduling.
-    emergency), so it belongs alongside this module's other shared
-    capacity/window helpers rather than as private API-layer glue."""
+    Lives here (rather than as private API-layer glue) because it's
+    needed by both the normal /schedule/options flow and the emergency
+    reschedule flow (railblock.scheduling.emergency), so it belongs
+    alongside this module's other shared capacity/window helpers."""
     if windows is None or windows.empty:
         return capacity
     consumed = windows.set_index(["section_id", "date", "window_index"])["minutes_used"]
@@ -394,15 +384,14 @@ def subtract_consumed_capacity(capacity: pd.DataFrame, windows: pd.DataFrame) ->
 
 
 def approved_rows_to_window_rows(approved: list[dict], capacity: pd.DataFrame) -> pd.DataFrame:
-    """Session 26, at explicit user request, after finding a real,
-    deeper gap: a task approved in an EARLIER /schedule/options ->
+    """A task approved in an EARLIER /schedule/options ->
     /schedule/approve round occupies a real (section, date, window_index)
-    slot forever after -- but nothing about a LATER scheduling run ever
-    looked at `store.approved` at all, so (a) that slot's spare room
-    (max-not-sum, a different department) was never offered to a new
-    task as a combining candidate, and (b) its capacity was never even
-    subtracted, so a later run could in principle double-book the SAME
-    real window for a second, unrelated task. This expands `approved`
+    slot forever after. A LATER scheduling run needs to look at
+    `store.approved` too, so that (a) that slot's spare room (max-not-sum,
+    a different department) can be offered to a new task as a combining
+    candidate, and (b) its capacity gets subtracted -- otherwise a later
+    run could in principle double-book the SAME real window for a
+    second, unrelated task. This expands `approved`
     (store.approved's own per-task rows -- each carrying a `sessions`
     list of (date, window_index, start_minute, end_minute) for a whole/
     split/combined task, or no real window_index at all for a negotiated
@@ -466,11 +455,10 @@ def combine_into_occupied_windows(
     ranked_tasks: pd.DataFrame,
     capacity: pd.DataFrame,
 ) -> tuple[pd.DataFrame, list[dict], pd.DataFrame]:
-    """Session 26, at explicit user request: "you can also combine
-    blocks with the already scheduled blocks which got scheduled in a
-    scheduling run long ago also. not just limit this to step A's
-    critical task solve." `occupied_windows` is any already-real,
-    already-placed set of windows -- either `critical_result.windows`
+    """Combining isn't limited to Step A's critical-task solve --
+    `occupied_windows` is any already-real, already-placed set of
+    windows, from this run or an earlier one -- either
+    `critical_result.windows`
     from THIS run's own Step A (a Critical task's block, which Step D's
     separate solve over non-critical tasks would otherwise never see
     again) or `approved_rows_to_window_rows(store.approved, ...)` from a
@@ -514,7 +502,7 @@ def combine_into_occupied_windows(
         window_minutes = capacity_by_key.get(key)
         current_depts: set[str] = set(w["departments"].split(",")) if w["departments"] else set()
         task_ids: list[str] = list(w["task_ids"]) if isinstance(w["task_ids"], list) else []
-        # Session 26: `w["minutes_used"]` is already "max across whichever
+        # `w["minutes_used"]` is already "max across whichever
         # department(s) were there before" -- track it forward so a newly
         # -added department's own minutes can grow it further (never
         # shrink it), giving _subtract_consumed_capacity a real, current

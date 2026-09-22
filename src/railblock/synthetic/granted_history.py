@@ -1,5 +1,5 @@
 """SYNTHETIC, fixed, never-regenerated dataset of already-granted historical
-maintenance blocks (Session 17, at explicit user request).
+maintenance blocks.
 
 Distinct from tasks.csv/maintenance_tasks.py's live waiting-list generator
 in one important way: every row here already went through approval in the
@@ -14,12 +14,11 @@ window against the real current time (see railblock.api.app's
 _classify_granted_history), so the same fixed file stays honestly correct
 no matter when it's read, without ever being edited.
 
-Session 27, at explicit user request, after a real reported gap: the
-original 50-row file (30 always-completed + 20 spread across roughly a
-week around its generation day) meant "Currently Active Blocks" and
-"Upcoming Blocks" on the Dashboard went empty once that week passed --
-exactly what happened. Rebuilt around a much wider, SIH-evaluation-length
-horizon and two buckets:
+Design rationale for the current bucket layout: an earlier, narrower file
+(30 always-completed rows + 20 spread across roughly a week around its
+generation day) meant "Currently Active Blocks" and "Upcoming Blocks" on
+the Dashboard went empty once that week passed. The dataset is instead
+built around a much wider, SIH-evaluation-length horizon and two buckets:
   - PAST_BUCKET (50 rows): dated from PAST_RANGE_DAYS_BEFORE days before
     GENERATION_ANCHOR through the day before it -- always "completed",
     real variety for the Completed History page.
@@ -31,41 +30,38 @@ horizon and two buckets:
     view's own tail edge case, not to change the deck's own "through
     November" scope.
 
-    Session 27 first tried guaranteeing a strict "3 simultaneously
-    active, always" floor by stretching every task's window to 19-23
-    hours regardless of its defect type's own real duration -- it
-    worked, but then showed up as a real, confusing discrepancy once
-    GET /requests/{task_id}'s "No details found" bug (Session 28) was
-    fixed and a user could actually SEE a task's real 1-hour-ish
+    An earlier design guaranteed a strict "3 simultaneously active,
+    always" floor by stretching every task's window to 19-23 hours
+    regardless of its defect type's own real duration. That worked, but
+    became a visible, confusing discrepancy once a task's own details
+    became inspectable: a user could see a task's real 1-hour-ish
     estimated_block_hours sitting next to a ~20-hour-wide calendar bar.
-    Session 28, at explicit user request: reverted to real, natural
-    durations (DEFECT_DURATION_HOURS, maintenance_tasks.py -- the same
-    per-defect-type triangular distribution the PAST bucket and the live
-    waiting-list generator both already use). TASKS_PER_DAY (3) still
-    gives every day multiple real tasks -- "each day just has active
-    tasks" is still true, and "active blocks" (a real window covering the
-    exact current moment) still shows up regularly -- but there is
-    deliberately NO strict guarantee anymore that some block is active at
-    every possible instant; that guarantee is what forced the unrealistic
-    stretching in the first place, and realism was the priority here.
+    The dataset now uses real, natural durations (DEFECT_DURATION_HOURS,
+    maintenance_tasks.py -- the same per-defect-type triangular
+    distribution the PAST bucket and the live waiting-list generator both
+    already use). TASKS_PER_DAY (3) still gives every day multiple real
+    tasks -- "each day just has active tasks" is still true, and "active
+    blocks" (a real window covering the exact current moment) still shows
+    up regularly -- but there is deliberately NO strict guarantee anymore
+    that some block is active at every possible instant; that guarantee
+    is what forced the unrealistic stretching in the first place, and
+    realism was the priority.
 
-    That same realism pass caught a second, more serious real bug: the
-    very first version of this module (Session 17) placed every window
-    at a PURELY random minute of the day, with no check against real
-    train occupancy at all -- unlike every live-scheduled task, which
-    Layer 1 (railblock.availability.corridor_availability) only ever
-    offers a window inside genuinely FREE time for. A user clicking into
-    a granted-history block on a busy section (e.g. MAS-BBQ) could see
-    real trains visibly passing THROUGH the middle of a "maintenance"
-    block -- exactly the double-booking this whole system exists to
-    prevent, just in a display-only dataset instead of a live one.
-    Session 28: every row's window is now placed inside a REAL free
-    interval for its own (section_id, date) -- the same compute_
-    availability() Layer 1 already uses for live scheduling -- picking
-    the largest free interval that day and clipping the task's natural
-    duration down to fit it on the (real, occasional) days a section is
-    too saturated for its full natural duration, rather than ever
-    ignoring real train occupancy.
+    An earlier version of this module also placed every window at a
+    PURELY random minute of the day, with no check against real train
+    occupancy at all -- unlike every live-scheduled task, which Layer 1
+    (railblock.availability.corridor_availability) only ever offers a
+    window inside genuinely FREE time for. That let a user clicking into
+    a granted-history block on a busy section (e.g. MAS-BBQ) see real
+    trains visibly passing THROUGH the middle of a "maintenance" block --
+    exactly the double-booking this whole system exists to prevent, just
+    in a display-only dataset instead of a live one. Every row's window
+    is now placed inside a REAL free interval for its own (section_id,
+    date) -- the same compute_availability() Layer 1 already uses for
+    live scheduling -- picking the largest free interval that day and
+    clipping the task's natural duration down to fit it on the (real,
+    occasional) days a section is too saturated for its full natural
+    duration, rather than ever ignoring real train occupancy.
 
 Run directly to (re)generate GRANTED_HISTORY_XLSX:
     python -m railblock.synthetic.granted_history
@@ -99,40 +95,34 @@ from railblock.synthetic.maintenance_tasks import (
 N_PAST = 50         # always "completed" -- Completed History variety
 TASKS_PER_DAY = 3   # real, independently-timed tasks per future day -- "each day just has active tasks"
 
-# Session 40, at explicit user request ("remove the GH prefix... no need
-# to specify it"): task_id lost its distinguishing "GH-" prefix, so this
-# module's own {source_system}-{n} numbering became indistinguishable
-# from -- and confirmed live to genuinely COLLIDE with -- POST /demo/seed's
-# raw generate_maintenance_tasks() numbering (also unprefixed, also
-# starting at 1; a real test caught two different sessions' schedules
-# sharing a task_id this way). Offsetting this module's own numbering
-# well clear of /demo/seed's largest real scenario (DEMAND_SCENARIOS'
+# task_id carries no distinguishing "GH-" prefix, so this module's own
+# {source_system}-{n} numbering would otherwise collide with POST
+# /demo/seed's raw generate_maintenance_tasks() numbering (also
+# unprefixed, also starting at 1). Offsetting this module's own numbering
+# well clear of /demo/seed's largest scenario (DEMAND_SCENARIOS'
 # "stress_test", 72 tasks) keeps the two id spaces disjoint without
-# bringing back a visible prefix.
+# reintroducing a visible prefix.
 ID_OFFSET = 10000
 
 PAST_RANGE_DAYS_BEFORE = 31  # "one month before" the generation anchor
 FUTURE_RANGE_END_MONTH_DAY = (11, 30)  # "through November" -- SIH evaluation window
 FUTURE_BUFFER_DAYS_PAST_END = 7  # tail past Nov 30 so "5 upcoming" never runs dry checking ON Nov 30 itself
 
-# Session 18, at explicit user request, after a real bug: this corridor's
-# every other timestamp (real train timetables, block windows) is
-# implicitly IST wall-clock time, but this deployment's host OS clock
-# runs UTC -- a naive `datetime.now()`/`date.today()` would silently
-# compare/generate against the wrong "now" (off by IST's fixed +5:30,
-# no DST in India so this offset is always exact). Every real-current-
-# time comparison in this module goes through `now_ist()` instead.
+# Every other timestamp in this corridor (real train timetables, block
+# windows) is implicitly IST wall-clock time, but this deployment's host
+# OS clock runs UTC -- a naive `datetime.now()`/`date.today()` would
+# silently compare/generate against the wrong "now" (off by IST's fixed
+# +5:30, no DST in India so this offset is always exact). Every
+# real-current-time comparison in this module goes through `now_ist()`
+# instead.
 #
-# Session 29, at explicit user request, after a real reported bug:
-# un-prefixed (was `_now_ist`) and now also used by api/app.py's GET
-# /now -- the frontend's own `todayIsoLocal()` (Schedule.jsx,
-# RecommendedScheduling.jsx, CorridorMapPage.jsx) trusted the VIEWER's
-# own machine clock for "today", which can genuinely disagree with this
-# server's clock by more than a day (confirmed live: a real report of
-# the Monthly Schedule's "Today" button landing on August when the
-# server's own real "today" is September) -- every real-current-time
-# UI default now comes from the server via that endpoint instead of the
-# browser's own `new Date()`.
+# `now_ist()` is public (not prefixed) because api/app.py's GET /now also
+# uses it: the frontend trusting the VIEWER's own machine clock for
+# "today" (Schedule.jsx, RecommendedScheduling.jsx, CorridorMapPage.jsx)
+# can disagree with the server's clock by more than a day (e.g. the
+# Monthly Schedule's "Today" button landing on the wrong month), so every
+# real-current-time UI default comes from the server via that endpoint
+# instead of the browser's own `new Date()`.
 IST = ZoneInfo("Asia/Kolkata")
 
 
@@ -170,17 +160,17 @@ def _place_in_free_time(
     could. Falls back to a nominal 15-minute window at midnight only in
     the practically-impossible case of zero free time at all that day.
 
-    Session 28 fix, after a real reported bug: free_intervals' own
-    bounds are real floats (actual train arrival/departure times), but
-    this function must return whole minutes -- naively int()-truncating
-    a fractional start (e.g. 465.88 -> 465) rounds DOWN across the real
-    boundary, landing the block 0.88 real minutes into the train
-    occupancy that free interval was supposed to exclude (confirmed live
-    against real data: 178 of 296 rows re-overlapped a real train this
-    way before this fix). Every free interval is snapped to whole
-    minutes FIRST -- ceil() the start, floor() the end -- so the integer
-    interval used for placement is always a true SUBSET of the real free
-    time, never spilling a fraction of a minute across either edge."""
+    free_intervals' own bounds are real floats (actual train
+    arrival/departure times), but this function must return whole
+    minutes -- naively int()-truncating a fractional start (e.g. 465.88
+    -> 465) rounds DOWN across the boundary, landing the block 0.88
+    minutes into the train occupancy that free interval was supposed to
+    exclude (measured against real data: 178 of 296 rows overlapped a
+    real train this way before intervals were snapped). Every free
+    interval is snapped to whole minutes FIRST -- ceil() the start,
+    floor() the end -- so the integer interval used for placement is
+    always a true SUBSET of the real free time, never spilling a
+    fraction of a minute across either edge."""
     avail = compute_availability(section_id, grant_date, passenger_occupancy, goods_occupancy, cache=avail_cache)
     free = avail["free_intervals"]
     int_free = [(math.ceil(s), math.floor(e)) for s, e in free]
@@ -283,14 +273,11 @@ def generate_granted_history(as_of: date | None = None, seed: int = 20260917) ->
 
 
 def _row(task: pd.Series, i: int, grant_date: date, start_minute: int, end_minute: int) -> dict:
-    # Session 29, at explicit user request, after a real reported bug: a
-    # granted-history block's details modal showed "-" for Splittable/
-    # Raised date/Due date/Days overdue -- not because that data doesn't
-    # exist, but because this function was silently dropping it. `task`
-    # (generate_maintenance_tasks()'s own row) already carries all four,
-    # real and already computed -- GET /requests/{task_id}'s on_time
-    # calculation below has always used task["due_date"] internally, so
-    # these were never actually missing, just never passed through.
+    # `task` (generate_maintenance_tasks()'s own row) already carries
+    # splittable/raised_date/due_date/days_overdue, real and already
+    # computed -- all four must be passed through here or a
+    # granted-history block's details modal shows "-" for them even
+    # though the underlying data exists.
     return {
         "task_id": f"{task['source_system']}-{i + ID_OFFSET + 1:05d}",
         "department": task["department"],
@@ -314,25 +301,22 @@ def _row(task: pd.Series, i: int, grant_date: date, start_minute: int, end_minut
 
 
 def demo_active_row(sections: pd.DataFrame, now: datetime, seed: int = 20260917) -> dict:
-    """Session 40, at explicit user request, ahead of a demo video: one
-    additional real-looking row, computed FRESH on every call (never
-    baked into the static xlsx `load_granted_history()` reads -- that's
-    @lru_cache'd, so a row placed there would freeze its timing at
-    whatever moment first loaded it in this process, not whenever the
-    video actually gets recorded) so it's ALWAYS classified "active"
-    (start before `now`, end at least 60 real minutes after it) no
-    matter when the Dashboard/Weekly-Monthly Schedule/Corridor Map are
-    actually loaded -- giving every one of them something genuinely live
-    to show, since all three already read from the same shared
-    granted-history data. Named with the same `GH-{source_system}-#####`
-    convention every other row here uses (a number well past this file's
-    own real range, so it can never collide with one), so it's not
-    visually distinguishable as synthetic in a demo.
+    """One additional real-looking row, computed FRESH on every call
+    (never baked into the static xlsx `load_granted_history()` reads --
+    that's @lru_cache'd, so a row placed there would freeze its timing at
+    whatever moment first loaded it in this process). It is ALWAYS
+    classified "active" (start before `now`, end at least 60 minutes
+    after it) no matter when the Dashboard/Weekly-Monthly Schedule/
+    Corridor Map are actually loaded -- giving every one of them
+    something genuinely live to show, since all three already read from
+    the same shared granted-history data. Named with the same
+    `{source_system}-#####` convention every other row here uses (a
+    number well past this file's own real range, so it can never collide
+    with one), so it's not visually distinguishable as synthetic.
 
-    One real simplification from the rest of this module: skips
-    _place_in_free_time's real-train-occupancy-aware placement, since
-    that needs passenger/goods occupancy rebuilt fresh -- a real
-    per-request cost this function is deliberately called on every
+    Deliberately skips _place_in_free_time's train-occupancy-aware
+    placement, since that needs passenger/goods occupancy rebuilt fresh
+    -- a cost this function accepts because it's called on every
     request, for one purely cosmetic row, not the actual scored
     dataset."""
     rng = np.random.default_rng(seed + now.toordinal())  # a fresh pick each real calendar day, stable within it

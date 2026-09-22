@@ -29,14 +29,11 @@ function fmtMinute(m) {
 
 const STATUS_TAG = { proposed: "crit", resolved: "rou", discarded: "pending" };
 
-// Session 30, at explicit user request, after a real reported gap: "it
-// should show when and where it scheduled it like the recommended
-// scheduling screen, after the user viewing the schedule ... then only
-// he will approve" -- groups the emergency's own block plus every
-// affected task's PROPOSED session by section, in the same {date,
-// blocks} shape HourGrid already renders everywhere else, so approving
-// is a genuine "I looked at where this lands" decision, not a blind
-// click over a plain table.
+// Groups the emergency's own block plus every affected task's PROPOSED
+// session by section, in the same {date, blocks} shape HourGrid already
+// renders everywhere else, so approving an emergency reschedule is a
+// genuine "I looked at where this lands" decision, not a blind click
+// over a plain table.
 function buildSectionDays(emergency) {
   const bySection = {};
   const push = (sectionId, block) => {
@@ -104,9 +101,8 @@ export default function EmergencyPanel() {
     load();
   }, []);
 
-  // Session 30: "each time a user clicks 'create emergency situation' it
-  // should create a new emergency situation" -- every click always POSTs
-  // a fresh one, never disabled/deduped once one already exists.
+  // Every click always POSTs a fresh emergency, never disabled/deduped
+  // once one already exists.
   async function handleCreate() {
     setCreating(true);
     setError(null);
@@ -134,11 +130,11 @@ export default function EmergencyPanel() {
     }
   }
 
-  // Session 32, at explicit user request: clears every emergency AND its
-  // reassignment overrides for this visitor -- a displaced task's
-  // reassignment is only ever an override on top of its real stored data
-  // (never an overwrite), so this alone puts every displaced task back at
-  // its original Weekly/Monthly Schedule slot.
+  // Clears every emergency AND its reassignment overrides for this
+  // visitor -- a displaced task's reassignment is only ever an override
+  // on top of its stored data (never an overwrite), so this alone puts
+  // every displaced task back at its original Weekly/Monthly Schedule
+  // slot.
   async function handleReset() {
     setResetting(true);
     setError(null);
@@ -202,13 +198,12 @@ export default function EmergencyPanel() {
 }
 
 function EmergencyCard({ emergency, resolving, onResolve, onPreview }) {
-  // Session 30: the emergency's real window is now anchored to whatever
-  // real task it was guaranteed to overlap (see create_demo_emergency's
-  // own Session 30 note), which can start later than `created_at` (when
-  // the button was actually clicked) -- read the displayed window from
-  // the real segments themselves, not recomputed from created_at +
-  // duration, which would otherwise show the wrong time whenever the
-  // two diverge.
+  // The emergency's window is anchored to whatever task it was
+  // guaranteed to overlap (see create_demo_emergency), which can start
+  // later than `created_at` (when the button was actually clicked) --
+  // read the displayed window from the segments themselves, not
+  // recomputed from created_at + duration, which would show the wrong
+  // time whenever the two diverge.
   const firstSeg = emergency.segments[0];
   const lastSeg = emergency.segments[emergency.segments.length - 1];
   const windowLabel = `${firstSeg.date} ${fmtMinute(firstSeg.start_minute)} – ${lastSeg.date} ${fmtMinute(lastSeg.end_minute)}`;
@@ -306,12 +301,11 @@ function SchedulePreviewModal({ emergency, resolving, onApprove, onClose }) {
 
   const dates = sectionId ? (sectionDays[sectionId] || []).map((d) => d.date) : [];
 
-  // Same real-train overlay every other schedule view already has, at
-  // explicit user request ("show the train passing blocks ... like shown
-  // in other schedules") -- identical AbortController pattern to
-  // Schedule.jsx's own effect, so rapid section switches can't pile up
-  // superseded requests (see that file's own Session 29 comment for the
-  // real ERR_INSUFFICIENT_RESOURCES bug this guards against).
+  // Same real-train overlay every other schedule view has, using the
+  // identical AbortController pattern as Schedule.jsx's own effect, so
+  // rapid section switches can't pile up superseded requests (see that
+  // file's comment for the ERR_INSUFFICIENT_RESOURCES bug this guards
+  // against).
   useEffect(() => {
     if (!sectionId || dates.length === 0) return;
     const controller = new AbortController();
