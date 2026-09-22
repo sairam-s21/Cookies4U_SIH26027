@@ -45,7 +45,7 @@ import pandas as pd
 import psycopg
 from psycopg.rows import dict_row
 
-from railblock.availability.corridor_availability import build_passenger_occupancy
+from railblock.availability.corridor_availability import build_passenger_occupancy, prewarm_delay_margin_cache
 from railblock.config import DATABASE_URL
 from railblock.corridor.derive_stations import load_timetable
 from railblock.corridor.fine_stations import load_fine_corridor_stations
@@ -73,7 +73,18 @@ _corridor_context: CorridorContext | None = None
 def get_corridor_context() -> CorridorContext:
     """Lazily load and cache the corridor structure + real passenger
     occupancy once per process -- see module docstring's performance note.
-    """
+
+    Also prewarms the delay-risk margin cache (see
+    corridor_availability.prewarm_delay_margin_cache) here, once,
+    immediately after passenger_occupancy is built: that data is this
+    same process-lifetime singleton, so every (train_type, station,
+    weekday) combination compute_availability could ever need for it is
+    fixed for the process's whole life too. Paying for one real batched
+    model call now -- on whichever request happens to trigger the very
+    first get_corridor_context() call -- means every later request
+    (ranking, scheduling, the Waiting List's own read) never pays the
+    much larger cost of discovering and predicting each combination
+    one at a time as it's first encountered."""
     global _corridor_context
     if _corridor_context is None:
         stations = load_fine_corridor_stations()
@@ -81,6 +92,7 @@ def get_corridor_context() -> CorridorContext:
         timetable, _ = load_timetable()
         timetable = apply_real_train_overrides(timetable)
         passenger_occupancy = build_passenger_occupancy(timetable, stations)
+        prewarm_delay_margin_cache(passenger_occupancy)
         _corridor_context = CorridorContext(stations, sections, passenger_occupancy)
     return _corridor_context
 

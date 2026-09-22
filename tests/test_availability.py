@@ -204,3 +204,74 @@ def test_free_plus_occupied_equals_total_for_real_corridor_section(tmp_path):
         result = compute_availability(section_id, date(2026, 9, 7), pax, goods)
         assert result["free_minutes"] + result["occupied_minutes"] == pytest.approx(MINUTES_PER_DAY, abs=0.01)
         assert 0 <= result["free_minutes"] <= MINUTES_PER_DAY
+
+
+def test_prewarm_delay_margin_cache_matches_uncached_prediction():
+    """prewarm_delay_margin_cache exists purely as a speed optimization
+    (batch-predicts every (train_type, station, weekday) combination a
+    real timetable will ever need in ONE model call, instead of leaving
+    each to be discovered -- and individually predicted -- on first use;
+    measured ~48x faster for this corridor's real combination count).
+    It must never change WHAT gets returned, only how fast -- confirmed
+    here against the module's own real, already-prewarmed cache (a
+    process-lifetime global api.store.get_corridor_context() populates
+    automatically), checking every value it produced matches calling the
+    single-row prediction function directly for the same inputs. Doesn't
+    clear/rebuild that shared cache itself -- it's reused by every other
+    test in this same process, and clearing it here would just make
+    whichever test runs next pay the slow uncached path for no reason."""
+    from railblock.paths import DELAY_MODEL_JOBLIB
+    if not DELAY_MODEL_JOBLIB.exists():
+        pytest.skip("delay-risk model not trained yet")
+
+    from railblock.availability.corridor_availability import _cached_margin_minutes, _margin_cache
+    from railblock.api.store import get_corridor_context
+    from railblock.ml.predict_delay import predict_delay_margin
+
+    get_corridor_context()  # idempotent -- ensures the process-wide prewarm has run at least once
+    assert _margin_cache, "prewarm should have populated at least one real combination for this corridor"
+
+    for (train_type, station_code, weekday), prewarmed_value in list(_margin_cache.items())[:25]:
+        uncached = predict_delay_margin(train_type, station_code, weekday)
+        assert uncached is not None
+        assert prewarmed_value == pytest.approx(uncached["margin_minutes"])
+        # Also confirm the real lookup function -- what _passenger_intervals
+        # actually calls -- reads the prewarmed value, not a fresh one.
+        assert _cached_margin_minutes(train_type, station_code, weekday) == pytest.approx(uncached["margin_minutes"])
+
+
+def test_passenger_grouping_cache_is_not_corrupted_by_a_reused_object_id():
+    """Real bug found running the full suite (not in isolation): the
+    per-section grouping cache _passenger_intervals uses internally was
+    first keyed on id(passenger_occupancy) alone -- correct for the ONE
+    real, process-lifetime passenger_occupancy singleton, but wrong for
+    the many short-lived DataFrames test fixtures construct, since
+    CPython can and does reuse a garbage-collected object's id() for an
+    unrelated later one. A short-lived DataFrame could then silently
+    inherit a stale grouping computed for whatever DIFFERENT DataFrame
+    previously died at that same address -- confirmed by seeing tests
+    pass individually but fail under the full suite. This forces that
+    exact scenario directly: build a DataFrame, use it, let it be
+    garbage collected, then build enough fresh ones that at least one is
+    highly likely to land on the freed address, and confirm every one of
+    them gets its OWN correct grouping, never a stale one belonging to
+    an earlier, unrelated object."""
+    import gc
+
+    from railblock.availability.corridor_availability import _passenger_intervals
+
+    def make(section_id: str) -> pd.DataFrame:
+        return pd.DataFrame(
+            [{"section_id": section_id, "train_no": "1", "start_minute": 0.0, "end_minute": 10.0, "source": "real_timetable"}]
+        )
+
+    first = make("A-B")
+    assert _passenger_intervals(first, "A-B") == [(0.0, 10.0)]
+    del first
+    gc.collect()
+
+    for _ in range(500):
+        other = make("C-D")
+        result = _passenger_intervals(other, "C-D")
+        assert result == [(0.0, 10.0)], f"got {result} -- section C-D must never see section A-B's stale interval"
+        assert _passenger_intervals(other, "A-B") == [], "a fresh DataFrame must never inherit an unrelated one's grouping"

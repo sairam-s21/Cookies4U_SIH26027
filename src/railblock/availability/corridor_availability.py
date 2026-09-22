@@ -41,6 +41,7 @@ section on that date.
 from __future__ import annotations
 
 import re
+import weakref
 from datetime import date as Date, timedelta
 from functools import lru_cache
 
@@ -48,7 +49,7 @@ import pandas as pd
 
 from railblock.availability.service_frequency import ALL_WEEKDAYS, assign_weekdays
 from railblock.ml.historical_delay import load_train_type_lookup
-from railblock.ml.predict_delay import predict_delay_margin
+from railblock.ml.predict_delay import predict_delay_margin, predict_delay_margin_batch
 
 MINUTES_PER_DAY = 24 * 60
 
@@ -99,24 +100,75 @@ def _delay_margin_minutes(train_no, section_id: str, weekday: int) -> float:
     return _cached_margin_minutes(train_type, to_code, weekday)
 
 
-@lru_cache(maxsize=100_000)
+# The model's input space is exactly (train_type, station_code, weekday)
+# -- a small, bounded, pure-function domain (540 types x 24 corridor
+# stations x 7 days is at most ~90,000 combinations, and real usage hits
+# a small fraction of that -- 2,863 for this corridor's real timetable,
+# confirmed by direct enumeration). A plain dict, not @lru_cache: a
+# per-call cache only ever helps a REPEAT of a combination already seen
+# during THIS process's life, so the very first request after every cold
+# start (Render's free tier spins down after 15 minutes idle) still pays
+# for every single miss -- and a fresh single-row sklearn .predict()
+# (measured ~8ms once real pipeline/joblib overhead is included, not the
+# bare model's own compute) run individually for all 2,863 of them
+# measured 23+ real seconds, the dominant cost in a ~31s /requests/
+# whittle-rank call. A dict lets prewarm_delay_margin_cache below fill in
+# every combination this corridor's real timetable will ever need with
+# ONE batched predict() call instead (measured 0.5s for the same 2,863
+# rows -- batching amortizes the fixed per-call pipeline/joblib overhead
+# across however many rows are predicted at once, so predicting them all
+# together is not just parallel-per-row but genuinely cheaper in total).
+_margin_cache: dict[tuple[str, str, int], float] = {}
+
+
+def prewarm_delay_margin_cache(passenger_occupancy: pd.DataFrame) -> None:
+    """Called once, by api.store.get_corridor_context() right after it
+    builds `passenger_occupancy` -- that data is a process-lifetime
+    singleton (see get_corridor_context's own docstring), so the full set
+    of (train_type, station_code, weekday) combinations this corridor's
+    real timetable could ever need is fixed for the life of the process
+    too. Enumerating and batch-predicting all of them ONCE here, instead
+    of leaving each one to be discovered (and predicted individually) the
+    first time some request happens to need it, moves this cost out of
+    every user-facing request entirely -- see _margin_cache's own
+    comment for the real measured numbers this replaces."""
+    type_lookup = load_train_type_lookup()
+    if not type_lookup or passenger_occupancy.empty:
+        return
+    triples: set[tuple[str, str, int]] = set()
+    for row in passenger_occupancy.itertuples(index=False):
+        train_type = type_lookup.get(str(row.train_no))
+        if train_type is None:
+            continue
+        to_code = row.section_id.split("-", 1)[-1]
+        for weekday in range(7):
+            triples.add((train_type, to_code, weekday))
+    triples -= set(_margin_cache)
+    if not triples:
+        return
+    ordered = sorted(triples)
+    rows = pd.DataFrame(ordered, columns=["train_type", "station_code", "day_of_week"])
+    result = predict_delay_margin_batch(rows)
+    if result is None:
+        return  # falls back to _delay_margin_minutes' own per-row path below
+    for (train_type, station_code, weekday), margin in zip(ordered, result["margin_minutes"]):
+        _margin_cache[(train_type, station_code, weekday)] = float(margin)
+
+
 def _cached_margin_minutes(train_type: str, station_code: str, weekday: int) -> float:
-    """The model's input space is exactly (train_type, station_code,
-    weekday) -- a small, bounded, pure-function domain (540 types x 24
-    corridor stations x 7 days is at most ~90,000 combinations, and real
-    usage hits a small fraction of that). Without this cache, a fresh
-    single-row sklearn .predict() (measured ~3ms) runs for every single
-    passenger-occupancy ROW, in every _passenger_intervals() call, in
-    every compute_availability() call -- enough to take the full test
-    suite from ~3.5 minutes to 15+ minutes. Caching at exactly this
-    granularity (not per train_no, which would miss the fact that many
-    different trains share the same type) turns every REPEAT of a
-    (type, station, weekday) combination -- the vast majority of calls,
-    since the same trains run the same corridor sections on the same
-    handful of weekdays over and over -- into a dict lookup instead of a
-    model call."""
+    key = (train_type, station_code, weekday)
+    cached = _margin_cache.get(key)
+    if cached is not None:
+        return cached
+    # Cache miss: a combination prewarm_delay_margin_cache didn't cover
+    # (e.g. a train/section added to the real timetable after this
+    # process started, or the prewarm's own batch predict failing) --
+    # falls back to a single-row predict so correctness never depends on
+    # the prewarm having succeeded, only speed does.
     margin = predict_delay_margin(train_type, station_code, weekday)
-    return margin["margin_minutes"] if margin is not None else 0.0
+    value = margin["margin_minutes"] if margin is not None else 0.0
+    _margin_cache[key] = value
+    return value
 
 _TIME_RE = re.compile(r"^(\d{1,2}):(\d{2}):(\d{2})$")
 
@@ -234,6 +286,42 @@ def _merge_intervals(intervals: list[tuple[float, float]]) -> list[tuple[float, 
     return [tuple(x) for x in merged]
 
 
+def _grouped_by_section(passenger_occupancy: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """passenger_occupancy[passenger_occupancy["section_id"] == section_id]
+    is a full-table boolean-mask scan -- fine once, but compute_availability
+    calls _passenger_intervals once per (section, date), so a real caller
+    ranking/scheduling against a 7-day horizon repeats the SAME section's
+    scan 7 times over, for an identical result every time (the filter
+    doesn't depend on the date at all). Grouped once per real
+    passenger_occupancy OBJECT, turning every one of those repeats into
+    an O(1) dict lookup instead.
+
+    Keyed by id(), with a weakref.finalize callback to evict that exact
+    entry the moment THIS specific object is garbage collected -- a bare
+    id()-keyed dict looked correct in isolation but broke for real under
+    the full test suite: CPython can and does reuse a garbage-collected
+    object's id() for an unrelated LATER object, so a short-lived test
+    fixture DataFrame could silently inherit a completely different,
+    stale grouping computed for whatever DataFrame previously died at
+    that same address. A plain WeakKeyDictionary can't be used instead --
+    it needs the key itself to be hashable, and DataFrame deliberately
+    isn't (it's mutable) -- but a DataFrame IS weakly-referenceable, and
+    that's all a finalize callback needs: it fires exactly once, exactly
+    when this object's refcount hits zero, well before Python could ever
+    hand its address to something new."""
+    key = id(passenger_occupancy)
+    cached = _grouped_by_section_cache.get(key)
+    if cached is not None:
+        return cached
+    grouped = {sec: g for sec, g in passenger_occupancy.groupby("section_id")}
+    _grouped_by_section_cache[key] = grouped
+    weakref.finalize(passenger_occupancy, _grouped_by_section_cache.pop, key, None)
+    return grouped
+
+
+_grouped_by_section_cache: dict[int, dict[str, pd.DataFrame]] = {}
+
+
 def _passenger_intervals(
     passenger_occupancy: pd.DataFrame, section_id: str, the_date: Date | None = None
 ) -> list[tuple[float, float]]:
@@ -260,27 +348,35 @@ def _passenger_intervals(
     needs a weekday to look up; the weekday-agnostic (`the_date is
     None`) path skips margin padding entirely.
     """
-    rows = passenger_occupancy[passenger_occupancy["section_id"] == section_id]
+    rows = _grouped_by_section(passenger_occupancy).get(section_id)
     has_weekdays = "weekdays" in passenger_occupancy.columns and the_date is not None
     if has_weekdays:
         today_wd = the_date.weekday()
         yesterday_wd = (today_wd - 1) % 7
 
     intervals = []
-    for _, row in rows.iterrows():
-        s, e = row["start_minute"], row["end_minute"]
+    if rows is None:
+        return intervals
+    # itertuples(), not iterrows(): iterrows() builds a full pandas Series
+    # per row (real, measured overhead -- see prewarm_delay_margin_cache's
+    # sibling comment for this same class of fix), which this loop's own
+    # profiling showed as the single largest remaining cost once the
+    # delay-margin model calls were batched. Plain namedtuples are enough
+    # here since every field is read by name, never assigned back.
+    for row in rows.itertuples(index=False):
+        s, e = row.start_minute, row.end_minute
         if has_weekdays:
-            wd_set = row["weekdays"]
+            wd_set = row.weekdays
             today_applies = today_wd in wd_set
             yesterday_applies = yesterday_wd in wd_set
         else:
             today_applies = True
             yesterday_applies = True
         if today_applies:
-            margin = _delay_margin_minutes(row["train_no"], section_id, today_wd) if has_weekdays else 0.0
+            margin = _delay_margin_minutes(row.train_no, section_id, today_wd) if has_weekdays else 0.0
             intervals.append((s, e + margin))
         if e > MINUTES_PER_DAY and yesterday_applies:
-            margin = _delay_margin_minutes(row["train_no"], section_id, yesterday_wd) if has_weekdays else 0.0
+            margin = _delay_margin_minutes(row.train_no, section_id, yesterday_wd) if has_weekdays else 0.0
             intervals.append((0.0, e - MINUTES_PER_DAY + margin))
     return intervals
 
