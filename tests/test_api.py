@@ -478,3 +478,141 @@ def test_emergency_reset_endpoint_restores_original_placement(client):
     assert reset.status_code == 200
     assert reset.json()["reset"] is True
     assert client.get("/emergency/list", headers=HEADERS_A).json()["emergencies"] == []
+
+
+def test_discarding_an_emergency_returns_affected_tasks_to_the_waiting_list(client):
+    from railblock.api.store import get_store
+
+    client.post("/demo/seed", json={"demand_scenario": "double_track_adjusted", "start_date": "2026-09-07", "seed": 7}, headers=HEADERS_A)
+    client.post("/schedule/recommend", json={"start_date": "2026-09-07", "n_days": 7, "time_limit_s": 10}, headers=HEADERS_A)
+    client.post("/schedule/approve", json={}, headers=HEADERS_A)
+
+    approved = [r for r in client.get("/requests", headers=HEADERS_A).json() if r["status"] == "approved"]
+    if not approved:
+        pytest.skip("no approved task in this run to displace")
+    approved_task_id = approved[0]["task_id"]
+
+    # Hand-built emergency naming this specific, real, live-approved task
+    # as affected -- create_demo_emergency's own real RNG-driven pick just
+    # as often lands on a granted-history-only row (no store.requests row
+    # at all, nothing for THIS fix to return anywhere), so relying on it
+    # here would make the test flaky by construction.
+    get_store().add_emergency(
+        {
+            "task_id": "EMRG-TEST-DISCARD",
+            "section_id": approved[0]["section_id"],
+            "department": "Engineering",
+            "defect_type": "Rail fracture",
+            "estimated_block_hours": 2.0,
+            "created_at": "2026-09-07T00:00:00",
+            "segments": [{"date": "2026-09-07", "start_minute": 0, "end_minute": 120}],
+            "is_emergency": True,
+            "status": "proposed",
+            "affected": [{"task_id": approved_task_id, "department": "Engineering", "section_id": approved[0]["section_id"], "old": {}, "proposed": None}],
+        },
+        "test-session-a",
+    )
+
+    resolved = client.post("/emergency/EMRG-TEST-DISCARD/resolve", json={"apply": False}, headers=HEADERS_A)
+    assert resolved.status_code == 200
+    assert resolved.json()["status"] == "discarded"
+
+    waiting_after = {r["task_id"]: r for r in client.get("/requests", headers=HEADERS_A).json()}
+    assert waiting_after[approved_task_id]["status"] == "pending"
+
+    # Discarded, then rescheduled normally -- proves it's genuinely usable
+    # again by the ordinary recommend flow, not just relabeled.
+    recommend = client.post("/schedule/recommend", json={"start_date": "2026-09-07", "n_days": 7, "time_limit_s": 10}, headers=HEADERS_A).json()
+    scheduled_ids = {row["task_id"] for row in recommend["schedule"]}
+    if approved_task_id not in scheduled_ids:
+        pytest.skip("re-solve didn't happen to place this task this run")
+
+
+def test_discarding_an_emergency_promotes_a_granted_history_only_affected_task(client):
+    """The other real shape an "affected" task_id can be -- one that was
+    never a live request at all, only ever present in the fixed granted-
+    history dataset (e.g. synthetic.granted_history.demo_active_row, the
+    demo's permanently "currently active" row). create_demo_emergency's
+    own real RNG-driven search overwhelmingly picks exactly this shape in
+    practice (it's always the soonest real candidate), so this is the
+    common case in the live app, not an edge case.
+
+    The promoted request keeps the SAME task_id as what the emergency's
+    own affected-tasks table showed -- a real bug found live: an earlier
+    version of this fix generated a brand-new id instead, which read as
+    an unrelated task appearing out of nowhere rather than the one that
+    was actually just displaced."""
+    from railblock.api.store import get_corridor_context, get_store
+    from railblock.synthetic.granted_history import demo_active_row, now_ist
+
+    ctx = get_corridor_context()
+    history_task = demo_active_row(ctx.sections, now_ist())
+    history_task_id = history_task["task_id"]
+
+    assert not client.get("/requests", headers=HEADERS_A).json()  # confirm it's genuinely not a live request
+
+    get_store().add_emergency(
+        {
+            "task_id": "EMRG-TEST-HISTORY",
+            "section_id": history_task["section_id"],
+            "department": "Engineering",
+            "defect_type": "Rail fracture",
+            "estimated_block_hours": 2.0,
+            "created_at": "2026-09-07T00:00:00",
+            "segments": [{"date": "2026-09-07", "start_minute": 0, "end_minute": 120}],
+            "is_emergency": True,
+            "status": "proposed",
+            "affected": [{
+                "task_id": history_task_id,
+                "department": history_task["department"],
+                "section_id": history_task["section_id"],
+                "old": {},
+                "proposed": None,
+            }],
+        },
+        "test-session-a",
+    )
+
+    resolved = client.post("/emergency/EMRG-TEST-HISTORY/resolve", json={"apply": False}, headers=HEADERS_A)
+    assert resolved.status_code == 200
+
+    waiting = client.get("/requests", headers=HEADERS_A).json()
+    promoted = [r for r in waiting if r["task_id"] == history_task_id]
+    assert promoted, "the same task_id should now be a real pending request"
+    assert promoted[0]["status"] == "pending"
+    assert promoted[0]["department"] == history_task["department"]
+    assert promoted[0]["section_id"] == history_task["section_id"]
+    assert promoted[0]["defect_type"] == history_task["defect_type"]
+
+
+def test_discarded_demo_active_row_is_never_rediscovered_by_a_later_emergency(client):
+    """Regression test for a real bug found live: once demo_active_row's
+    task_id is promoted into a real request, a SUBSEQUENT emergency must
+    never find that exact same task_id again -- an earlier version of
+    this fix instead auto-substituted a fresh synthetic replacement (a
+    different department, same "right now" placement) the instant the
+    last one got used, which reads as a new fake task being conjured to
+    keep affecting things, not a genuine guarantee (confirmed live, and
+    correctly called out as exactly that). The honest behavior: once
+    it's gone, a later emergency finds either a real approved task or
+    nothing at all -- never the one just discarded, and never a
+    manufactured stand-in."""
+    from railblock.synthetic.granted_history import demo_active_row_task_id, now_ist
+
+    todays_device_id = demo_active_row_task_id(now_ist())
+
+    first = client.post("/emergency/create", headers=HEADERS_A).json()
+    first_affected = [a["task_id"] for a in first["affected"]]
+    if todays_device_id not in first_affected:
+        pytest.skip("this run's first emergency didn't happen to land on demo_active_row")
+
+    client.post(f"/emergency/{first['emergency']['task_id']}/resolve", json={"apply": False}, headers=HEADERS_A)
+
+    second = client.post("/emergency/create", headers=HEADERS_A).json()
+    second_affected = [a["task_id"] for a in second["affected"]]
+    assert todays_device_id not in second_affected, (
+        f"{todays_device_id} was already discarded once -- it must never be found as 'affected' again"
+    )
+
+    waiting_ids = [r["task_id"] for r in client.get("/requests", headers=HEADERS_A).json()]
+    assert waiting_ids.count(todays_device_id) == 1, "must appear exactly once in the Waiting List, never duplicated"

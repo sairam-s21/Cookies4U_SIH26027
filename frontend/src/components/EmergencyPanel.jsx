@@ -124,6 +124,7 @@ export default function EmergencyPanel() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState(null);
+  const [info, setInfo] = useState(null);
   const [resolving, setResolving] = useState(null);
   const [previewing, setPreviewing] = useState(null); // the emergency currently being reviewed
   const [resetting, setResetting] = useState(false);
@@ -145,6 +146,7 @@ export default function EmergencyPanel() {
   async function handleCreate() {
     setCreating(true);
     setError(null);
+    setInfo(null);
     try {
       await api.createEmergency();
       load();
@@ -158,9 +160,20 @@ export default function EmergencyPanel() {
   async function handleResolve(taskId, apply) {
     setResolving(taskId);
     setError(null);
+    setInfo(null);
     try {
+      // On discard, every affected task falls through to the "removed"
+      // branch in POST /emergency/{id}/resolve regardless of whether it
+      // had a proposed slot -- so `affected.length` here is exactly the
+      // count of tasks the backend is about to reset to "pending" and
+      // send back to the Waiting List.
+      const emergency = emergencies.find((e) => e.task_id === taskId);
+      const affectedCount = emergency?.affected?.length || 0;
       await api.resolveEmergency(taskId, apply);
       setPreviewing(null);
+      if (!apply && affectedCount > 0) {
+        setInfo(`${affectedCount} affected task${affectedCount === 1 ? "" : "s"} moved back to the Waiting List -- reschedule ${affectedCount === 1 ? "it" : "them"} anytime from Recommended Scheduling.`);
+      }
       load();
     } catch (e) {
       setError(e.message);
@@ -177,6 +190,7 @@ export default function EmergencyPanel() {
   async function handleReset() {
     setResetting(true);
     setError(null);
+    setInfo(null);
     try {
       await api.resetEmergencies();
       load();
@@ -206,6 +220,7 @@ export default function EmergencyPanel() {
         )}
       </div>
       <ErrorBanner message={error} />
+      {info && <InfoBanner tone="emerald">{info}</InfoBanner>}
       {loading ? (
         <Spinner />
       ) : emergencies.length === 0 ? (

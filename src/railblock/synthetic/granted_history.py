@@ -300,7 +300,18 @@ def _row(task: pd.Series, i: int, grant_date: date, start_minute: int, end_minut
     }
 
 
-def demo_active_row(sections: pd.DataFrame, now: datetime, seed: int = 20260917) -> dict:
+def demo_active_row_task_id(now: datetime, seed: int = 20260917) -> str:
+    """The task_id demo_active_row would use for `now`'s calendar day --
+    exposed standalone so api/app.py can check whether TODAY's specific
+    device is already a live request (see emergency_resolve) without
+    duplicating this same day-seeded department pick, or risking it
+    drifting out of sync with demo_active_row's own."""
+    rng = np.random.default_rng(seed + now.toordinal())
+    department = str(rng.choice(DEPARTMENTS))
+    return f"{SOURCE_SYSTEM[department]}-90001"
+
+
+def demo_active_row(sections: pd.DataFrame, now: datetime, seed: int = 20260917, already_used: bool = False) -> dict | None:
     """One additional real-looking row, computed FRESH on every call
     (never baked into the static xlsx `load_granted_history()` reads --
     that's @lru_cache'd, so a row placed there would freeze its timing at
@@ -314,11 +325,28 @@ def demo_active_row(sections: pd.DataFrame, now: datetime, seed: int = 20260917)
     number well past this file's own real range, so it can never collide
     with one), so it's not visually distinguishable as synthetic.
 
+    `already_used`: True once this device's task_id has been promoted
+    into a real request this session (see emergency_resolve) -- it's a
+    genuine, real task sitting in the Waiting List now, not something
+    still "currently active" to keep showing (get_store().get_request(...)
+    already returns it directly before this function is ever reached).
+    Returns None rather than substituting a different device: this row
+    exists to guarantee ONE real, honest "something is active right now"
+    demo fact, not an inexhaustible supply -- silently swapping in a
+    fresh synthetic replacement every time the last one gets used, at the
+    exact same "right now" placement, reads as new fake tasks conjured
+    out of thin air the moment an old one is dismissed (confirmed live:
+    that's exactly the impression it gave). Once used, the corridor's own
+    real data is what the Dashboard/emergency search should reflect --
+    nothing manufactured to paper over it looking quieter than before.
+
     Deliberately skips _place_in_free_time's train-occupancy-aware
     placement, since that needs passenger/goods occupancy rebuilt fresh
     -- a cost this function accepts because it's called on every
     request, for one purely cosmetic row, not the actual scored
     dataset."""
+    if already_used:
+        return None
     rng = np.random.default_rng(seed + now.toordinal())  # a fresh pick each real calendar day, stable within it
     department = str(rng.choice(DEPARTMENTS))
     section_id = str(rng.choice(sections["section_id"].tolist()))

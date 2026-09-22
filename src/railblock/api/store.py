@@ -379,6 +379,17 @@ class BlockRequestStore:
             cur.execute("SELECT row_json FROM approved WHERE session_id = %s ORDER BY id ASC", (session_id,))
             return [json.loads(r["row_json"]) for r in cur.fetchall()]
 
+    def delete_approved(self, task_id: str, session_id: str) -> None:
+        """Removes every row for this task_id from `approved` (a split
+        task can legitimately have more than one, one per session) --
+        used when an emergency discard returns a live task to the
+        Waiting List, so its stale pre-emergency approved slot doesn't
+        keep existing alongside its new 'pending' request row."""
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM approved WHERE session_id = %s AND task_id = %s", (session_id, task_id)
+            )
+
     # ---------------------------------------------------------- options
 
     def set_last_options(self, options_payload: list[dict], params: dict, session_id: str) -> None:
@@ -478,6 +489,19 @@ class BlockRequestStore:
                 ON CONFLICT (session_id, task_id) DO UPDATE SET row_json = EXCLUDED.row_json
                 """,
                 (session_id, task_id, json.dumps(data, default=str)),
+            )
+
+    def clear_emergency_reassignment(self, task_id: str, session_id: str) -> None:
+        """Removes a single task_id's override, once it's no longer
+        needed -- a discarded LIVE task's stale approved row is deleted
+        outright (see delete_approved), so there's nothing left for the
+        'removed' flag to keep suppressing; leaving it in place would
+        silently hide that same task_id's NEXT, genuinely new approval
+        too, since the override lookup is keyed on task_id alone with no
+        way to tell 'stale' from 'current'."""
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM emergency_reassignments WHERE session_id = %s AND task_id = %s", (session_id, task_id)
             )
 
     def get_emergency_reassignments(self, session_id: str) -> dict[str, dict]:

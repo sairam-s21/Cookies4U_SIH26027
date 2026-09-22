@@ -89,4 +89,4 @@ class EmergencyResolveRequest(BaseModel):
     already computed for one emergency -- see
     railblock.scheduling.emergency."""
 
-    apply: bool = Field(..., description="True: apply the proposed reschedule. False: discard it (affected tasks are vacated, not moved).")
+    apply: bool = Field(..., description="True: apply the proposed reschedule. False: discard it -- affected tasks are vacated from their old slot and returned to the Waiting List (status='pending') so they can be picked up by a future recommend/options run.")

@@ -66,18 +66,39 @@ from railblock.scheduling.emergency import create_demo_emergency, find_affected_
 from railblock.scheduling.orchestrator import FullScheduleResult, solve_schedule_with_options
 from railblock.scheduling.schedule_options import ScheduleOption, generate_schedule_options, summarize_option
 from railblock.synthetic.goods_forecast import generate_goods_forecast
-from railblock.synthetic.granted_history import IST, classify_blocks_by_time, demo_active_row, load_granted_history, now_ist
+from railblock.synthetic.granted_history import (
+    IST,
+    classify_blocks_by_time,
+    demo_active_row,
+    demo_active_row_task_id,
+    load_granted_history,
+    now_ist,
+)
 from railblock.synthetic.maintenance_tasks import (
     DEFECT_TYPES,
     DEMAND_SCENARIOS,
     DEPARTMENTS,
     PRIORITY_WEIGHTS,
     SM_DIRECT_APPROVAL_MAX_HOURS,
+    SOURCE_SYSTEM,
     generate_maintenance_tasks,
 )
 
 log = logging.getLogger("railblock.tasks_csv_watch")
 TASKS_CSV_POLL_INTERVAL_S = 2.0
+
+# synthetic.granted_history.demo_active_row's own task_id convention
+# ({source_system}-900NN, any generation NN) -- see emergency_resolve's
+# own docstring for why this specific shape needs different treatment
+# than every other granted-history row on discard.
+_DEMO_ACTIVE_ROW_PREFIXES = tuple(f"{s}-900" for s in SOURCE_SYSTEM.values())
+
+
+def _is_demo_active_row_task_id(task_id: str) -> bool:
+    for prefix in _DEMO_ACTIVE_ROW_PREFIXES:
+        if task_id.startswith(prefix) and len(task_id) == len(prefix) + 2 and task_id[len(prefix):].isdigit():
+            return True
+    return False
 
 
 def get_session_id(x_session_id: str | None = Header(default=None, alias="X-Session-Id")) -> str:
@@ -1184,9 +1205,21 @@ def _granted_history_df(session_id: str) -> pd.DataFrame:
     static load_granted_history() result -- see that function's own
     docstring for why it would go stale), appended BEFORE the
     reassignment override step above so it's just as eligible to be
-    displaced by an emergency as any other row here."""
+    displaced by an emergency as any other row here. Omitted once its own
+    task_id has already been promoted into a real live request this
+    session (see emergency_resolve) -- it's a genuine request now,
+    already returned by get_store().get_request(...) before this function
+    is ever reached (_lookup_task_detail checks the live store first), so
+    including it here too would show that same task_id as simultaneously
+    "currently active" AND "pending in the Waiting List". No replacement
+    device is substituted once it's gone -- see demo_active_row's own
+    docstring for why."""
     ctx = get_corridor_context()
-    base = pd.concat([load_granted_history(), pd.DataFrame([demo_active_row(ctx.sections, now_ist())])], ignore_index=True)
+    store = get_store()
+    already_used = store.has_request(demo_active_row_task_id(now_ist()), session_id)
+    active_row = demo_active_row(ctx.sections, now_ist(), already_used=already_used)
+    extra_rows = [active_row] if active_row is not None else []
+    base = pd.concat([load_granted_history(), pd.DataFrame(extra_rows)], ignore_index=True)
     return _apply_reassignment_overrides_df(base, session_id)
 
 
@@ -1385,9 +1418,43 @@ def emergency_resolve(task_id: str, req: EmergencyResolveRequest, session_id: st
     create already computed for this emergency. On apply, every affected
     task with a real proposed slot gets it via `emergency_reassignments`
     (consulted by GET /schedule/weekly and the history/Dashboard
-    endpoints); one with no slot found is marked removed -- it genuinely
-    can't happen where it was, so its stale old slot is vacated either
-    way, approved or not."""
+    endpoints).
+
+    A task with no proposed slot -- either none was found, or the human
+    discarded the whole proposal -- genuinely can't happen where it was,
+    so it's returned to the Waiting List (status='pending') rather than
+    just vanishing (invisible: gone from the schedule, but also excluded
+    from GET /requests, which filters out "approved"). Two real shapes,
+    handled differently:
+
+    - A LIVE task (a real row in `requests`) has its stale approved slot
+      deleted outright and its status reset to 'pending'. The
+      reassignment override is then CLEARED too, not just left as
+      "removed" -- with nothing left in `approved` for it to suppress,
+      leaving it in place would silently hide this SAME task_id's next,
+      genuinely new approval as well (the override lookup is keyed on
+      task_id alone, with no way to tell "stale" from "current").
+    - A GRANTED-HISTORY-only task_id was never a real request, so there's
+      no status to reset. It gets a brand-new pending request instead,
+      carrying over its real department/section/defect/priority/due-date
+      -- under the SAME task_id, so it reads as "the task that was just
+      displaced," not an unrelated new one. Safe to reuse unconditionally:
+      an ordinary static row stays permanently suppressed by the
+      "removed" override set below (that source row is a fixed,
+      unchanging historical fact, so nothing but the override keeps it
+      from reappearing and colliding with the new live one), while
+      synthetic.granted_history.demo_active_row specifically (the demo's
+      "currently active" row, task_id always ending "-90001") is instead
+      excluded from being regenerated at all once its own task_id already
+      has a live request -- see _granted_history_df and that function's
+      own docstring for why NO replacement device is substituted for it
+      either: a synthetic decoy quietly reappearing at the exact same
+      "right now" placement the instant the last one gets used reads as
+      new fake tasks being conjured to keep affecting things, not a
+      genuine guarantee -- confirmed live, and correctly called out as
+      exactly that. Once it's been used, a subsequent emergency finding
+      nothing nearby is now an honest "no already-scheduled blocks were
+      affected," not a manufactured one."""
     store = get_store()
     emergency = store.get_emergency(task_id, session_id)
     if emergency is None:
@@ -1396,8 +1463,63 @@ def emergency_resolve(task_id: str, req: EmergencyResolveRequest, session_id: st
     for a in emergency.get("affected", []):
         if req.apply and a["proposed"] is not None:
             store.set_emergency_reassignment(a["task_id"], {**a["proposed"], "emergency_task_id": task_id}, session_id)
-        else:
+            continue
+
+        if store.has_request(a["task_id"], session_id):
+            # A live task's stale approved slot is deleted outright, so
+            # there's nothing left for a "removed" override to suppress
+            # -- setting one here (even briefly) is unnecessary, and
+            # leaving it in place would silently hide this SAME task_id's
+            # next, genuinely new approval too (the override lookup is
+            # keyed on task_id alone, with no way to tell stale from
+            # current).
+            store.delete_approved(a["task_id"], session_id)
+            store.update_request_status(a["task_id"], "pending", session_id)
+            store.clear_emergency_reassignment(a["task_id"], session_id)
+            continue
+
+        # A GRANTED-HISTORY-only task_id was never a real request, so
+        # there's no status to reset -- look up its real detail BEFORE
+        # marking it removed below: that same "removed" flag is exactly
+        # what filters a task OUT of the granted-history view this lookup
+        # falls back to, so setting it first would make the task
+        # invisible to its own detail lookup.
+        detail = _lookup_task_detail(a["task_id"], session_id)
+        if not _is_demo_active_row_task_id(a["task_id"]):
             store.set_emergency_reassignment(a["task_id"], {"removed": True, "emergency_task_id": task_id}, session_id)
+        if detail is None:
+            continue
+        store.add_request(
+            {
+                # Same task_id, not a freshly generated one -- the human
+                # sees "TDMS-REQ-00042 was affected" on this emergency's
+                # own card, and a request that later shows up under a
+                # DIFFERENT id in the Waiting List reads as a completely
+                # unrelated new task, not the one they just discarded.
+                # Safe to reuse unconditionally here: a non-demo_active_row
+                # source stays permanently suppressed by the "removed"
+                # reassignment set above, so its own static row can never
+                # resurface and collide with this new live one; a
+                # demo_active_row source is excluded from being
+                # regenerated at all once this exact task_id has a real
+                # request (see _granted_history_df).
+                "task_id": a["task_id"],
+                "department": detail["department"],
+                "source_system": SOURCE_SYSTEM[detail["department"]],
+                "section_id": detail["section_id"],
+                "defect_type": detail["defect_type"],
+                "requester_priority": detail["requester_priority"],
+                "raised_date": detail.get("raised_date"),
+                "due_date": detail.get("due_date"),
+                "days_overdue": detail.get("days_overdue") or 0,
+                "estimated_block_hours": detail["estimated_block_hours"],
+                "splittable": detail.get("splittable", True),
+                "approval_path": detail.get("approval_path", "sm_direct"),
+                "data_source": "EMERGENCY_RESCHEDULE",
+                "status": "pending",
+            },
+            session_id,
+        )
 
     emergency["status"] = "resolved" if req.apply else "discarded"
     store.update_emergency(task_id, emergency, session_id)
