@@ -44,65 +44,36 @@ RailBlock Co-Pilot sits **on top of** the existing systems — it doesn't replac
 | Machine learning | scikit-learn | lightweight, explainable regression — no GPU needed |
 | Optimization | Google OR-Tools (CP-SAT) | the constraint solver that guarantees no scheduling conflicts |
 
-## System Architecture
+## Workflow
 
-The system is built in five layers. Data flows in at the top and a finished schedule comes out at the bottom.
+The system runs in five layers, left to right below. Each layer's own real dataset feeds it directly; Layer 3's result (how much section time is actually free) feeds forward into Layer 5 alongside the rest of the chain.
 
 ```mermaid
 flowchart TD
-    Data["Real and synthetic input data<br/>(timetable, stations, delay history,<br/>task requests, freight forecast)"]
+    D1[/"Block requests from<br/>TMS, TDMS, SMMS"/]
+    D2[/"Train Delay Dataset"/]
+    D3[/"Train Time Table Dataset"/]
+    D4[/"Historical Block<br/>Utilization Dataset"/]
+    D5[/"Available section time"/]
 
-    L1["Layer 1 — Corridor Availability<br/>works out how much free track<br/>time each section has"]
-    L2["Layer 2 — Task Prioritization<br/>ranks tasks with the<br/>Whittle-Index"]
-    L3["Layer 3 — Scheduling Optimizer<br/>the CP-SAT solver places<br/>tasks into free time"]
-    L4["Layer 4 — Weekly and Monthly Plan"]
-    L5["Layer 5 — KPI Dashboard"]
+    L1["Layer 1: Priority-based ranking<br/>Tasks from all three departments<br/>ranked by Whittle-Index calculation"]
+    L2["Layer 2: Train delay buffer calculation<br/>Gradient Boosting Regressor trained on<br/>train delay data calculates a delay buffer"]
+    L3["Layer 3: Section Availability<br/>Available section time = Section time −<br/>(passenger + goods occupancy) − delay buffer"]
+    L4["Layer 4: Adaptive allocation<br/>Regression model learns from historical<br/>utilization % per defect type"]
+    L5["Layer 5: Scheduler and Optimiser<br/>CP-SAT solver finds the optimal time block<br/>for each task in the available section time"]
 
-    ML1["ML Model — Delay-Risk Buffering<br/>predicts how late each train<br/>usually runs"]
-    ML2["ML Model — Adaptive Allocation<br/>suggests a shorter, safe duration<br/>when a task won't otherwise fit"]
+    R[/"Rescheduling<br/>Already-approved blocks delayed or skipped<br/>by unavoidable situations (weather, emergencies,<br/>machinery failure, etc.) go through the<br/>same algorithm again"/]
+    O(["Output<br/>Approved and optimised schedule,<br/>updated weekly/monthly schedule,<br/>updated dashboard and corridor map"])
 
-    Emergency["Emergency Handling<br/>places an urgent block instantly,<br/>then reschedules what it displaced"]
+    D1 --> L1
+    D2 --> L2
+    D3 --> L3
+    D4 --> L4
 
-    Data --> L1 --> L2 --> L3 --> L4 --> L5
-    ML1 -.pads train time slots inside.-> L1
-    ML2 -.steps in during.-> L3
-    Emergency -.-> L3
-```
-
-1. **Corridor Availability** — first works out the corridor's real station list by combining every train's real stop sequence from the timetable (never hand-picked). Then computes free time per section: total time minus real passenger train traffic minus forecast freight traffic.
-2. **Task Prioritization** — scores each pending task by urgency and impact, then ranks it using the Whittle-Index (see below). A trained ML model separately predicts how late trains typically run, and that prediction is used to pad train schedule slots with a safety margin.
-3. **Scheduling Optimizer** — the CP-SAT solver places ranked tasks into free time slots, guaranteeing no two tasks ever overlap on the same section, and combining departments into shared windows wherever it can. A second trained ML model steps in only when a task's full requested duration can't fit anywhere, suggesting a shorter, historically-realistic duration instead.
-4. **Weekly and Monthly Plan** — runs the same solver at two time scales; the monthly plan sets soft targets that each week's detailed plan works within.
-5. **KPI Dashboard** — reports real, measurable numbers: asset uptime, how much track time is used, how many priority tasks got scheduled, and how often departments got combined into shared blocks.
-
-## Workflow
-
-**Normal request → approval flow:**
-
-```mermaid
-flowchart LR
-    A["A department<br/>raises a task"] --> B["Waiting List"]
-    B --> C["Ranked by<br/>Whittle-Index"]
-    C --> D["CP-SAT solver builds<br/>schedule options"]
-    D --> E{"COA<br/>reviews it"}
-    E -->|Approves| F["Scheduled"]
-    E -->|Rejects| G["Rejected"]
-    F --> H["Completed"]
-
-    ML1["ML: Delay-Risk Buffering<br/>pads real train time slots"] -.feeds into.-> D
-    D -.task won't fit in full?.-> ML2["ML: Adaptive Allocation<br/>suggests a shorter safe duration"]
-    ML2 -.-> D
-```
-
-**Emergency flow:**
-
-```mermaid
-flowchart LR
-    X["Emergency occurs<br/>(e.g. rail fracture)"] --> Y["Block placed instantly<br/>no approval needed yet"]
-    Y --> Z["Every task it bumped<br/>gets a new proposed slot"]
-    Z --> W{"COA<br/>reviews it"}
-    W -->|Approves| F["New schedule<br/>takes effect"]
-    W -->|Discards| B["Bumped tasks<br/>return to Waiting List"]
+    L1 --> L2 --> L3 --> L4 --> L5
+    L3 --> D5 --> L5
+    R --> L1
+    L5 --> O
 ```
 
 ## Datasets
