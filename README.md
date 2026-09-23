@@ -74,9 +74,9 @@ flowchart TD
 
     EB["Emergency Block:<br/>placed immediately,<br/>without approval"]
     RS["Rescheduling: already-scheduled<br/>blocks skipped because of<br/>the emergency situation"]
-    CR{"COA reviews<br/>the new schedule"}
+    CR{"Emergency Handling:<br/>COA reviews<br/>the new schedule"}
     AT["Affected tasks move<br/>to Waiting List"]
-    CN["COA reviews 3 options<br/>and approves one schedule"]
+    CN["Normal Scheduling:<br/>COA reviews 3 options<br/>and approves one schedule"]
     SU(["Schedule is Updated"])
 
     EB --> RS --> L1
