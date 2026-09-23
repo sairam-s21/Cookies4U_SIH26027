@@ -46,34 +46,44 @@ RailBlock Co-Pilot sits **on top of** the existing systems — it doesn't replac
 
 ## Workflow
 
-The system runs in five layers, left to right below. Each layer's own real dataset feeds it directly; Layer 3's result (how much section time is actually free) feeds forward into Layer 5 alongside the rest of the chain.
+Two separate flows: how a normal task gets scheduled, and what happens when an emergency displaces already-approved work.
+
+### Normal Scheduling
 
 ```mermaid
 flowchart TD
     D1[/"Block requests from<br/>TMS, TDMS, SMMS"/]
     D2[/"Train Delay Dataset"/]
-    D3[/"Train Time Table Dataset"/]
-    D4[/"Historical Block<br/>Utilization Dataset"/]
-    D5[/"Available section time"/]
 
-    L1["Layer 1: Priority-based ranking<br/>Tasks from all three departments<br/>ranked by Whittle-Index calculation"]
-    L2["Layer 2: Train delay buffer calculation<br/>Gradient Boosting Regressor trained on<br/>train delay data calculates a delay buffer"]
-    L3["Layer 3: Section Availability<br/>Available section time = Section time −<br/>(passenger + goods occupancy) − delay buffer"]
-    L4["Layer 4: Adaptive allocation<br/>Regression model learns from historical<br/>utilization % per defect type"]
-    L5["Layer 5: Scheduler and Optimiser<br/>CP-SAT solver finds the optimal time block<br/>for each task in the available section time"]
+    L1["All newly raised blocks move to the<br/>Waiting List and are ranked by<br/>Whittle-Index based on priority"]
+    L2["Gradient Boosting Regressor model<br/>predicts train delay buffer timing"]
+    L3["Available section time = Total section time −<br/>(passenger + goods train occupancy) −<br/>train delay buffer timing"]
+    L4["Regression model learns from historical<br/>block utilization data and calculates a<br/>suitable time window for each task"]
+    L5["CP-SAT allocates all tasks optimally<br/>and generates three schedule options"]
 
-    R[/"Rescheduling<br/>Already-approved blocks delayed or skipped<br/>by unavoidable situations (weather, emergencies,<br/>machinery failure, etc.) go through the<br/>same algorithm again"/]
-    O(["Output<br/>Approved and optimised schedule,<br/>updated weekly/monthly schedule,<br/>updated dashboard and corridor map"])
+    R{"COA reviews all three<br/>options and selects one"}
+    O(["Weekly/Monthly Schedule, Dashboard, Corridor Map,<br/>Waiting List and Approved Tasks are all<br/>updated based on the selected option"])
 
     D1 --> L1
     D2 --> L2
-    D3 --> L3
-    D4 --> L4
+    L1 --> L3
+    L2 --> L3
+    L3 --> L4 --> L5 --> R --> O
+```
 
-    L1 --> L2 --> L3 --> L4 --> L5
-    L3 --> D5 --> L5
-    R --> L1
-    L5 --> O
+### Rescheduling (Emergency)
+
+```mermaid
+flowchart TD
+    T["Already-approved, scheduled blocks delayed or<br/>skipped by unavoidable situations -- extreme<br/>weather, emergency tasks, lack of machinery,<br/>disasters, etc."]
+    E["An emergency block is placed instantly,<br/>with no approval needed -- affected tasks are<br/>run through the SAME normal scheduling<br/>algorithm above, and a new schedule is generated"]
+    R{"COA reviews the new<br/>schedule of the affected blocks"}
+    A(["Weekly/Monthly Schedule, Dashboard, Corridor Map,<br/>Waiting List and Approved Tasks are all updated"])
+    D["The affected tasks are loaded into the<br/>Waiting List so the user can<br/>reschedule them whenever they want"]
+
+    T --> E --> R
+    R -->|If COA approves| A
+    R -->|If COA discards| D
 ```
 
 ## Datasets
